@@ -181,7 +181,7 @@ test "benchmark.add" {
             var pA: *volatile u64 = &pSelf.a;
             var pB: *volatile u64 = &pSelf.b;
             var pR: *volatile u128 = &pSelf.r;
-            pR.* = pA.* + pB.*;
+            pR.* = u128(pA.*) + u128(pB.*);
             //sfence();
             //@fence(AtomicOrder.Release); // Generates no type of fence, expected sfence
             //@fence(AtomicOrder.AcqRel); // Generates no type of fence, expected ??
