@@ -95,25 +95,26 @@ test "benchmark.add" {
 ```bash
 $ time zig test --release-fast benchmark.zig
 Test 1/1 benchmark.add...
-iterations:1054135040 runtime:0.595s ns/op:0.564ns
-iterations:1054135040 runtime:0.594s ns/op:0.563ns
-iterations:1054135040 runtime:0.595s ns/op:0.565ns
-iterations:1054135040 runtime:0.596s ns/op:0.565ns
-iterations:1054135040 runtime:0.596s ns/op:0.565ns
-iterations:1054135040 runtime:0.596s ns/op:0.565ns
-iterations:1054135040 runtime:0.594s ns/op:0.564ns
-iterations:1054135040 runtime:0.595s ns/op:0.565ns
-iterations:1054135040 runtime:0.595s ns/op:0.565ns
-iterations:1054135040 runtime:0.595s ns/op:0.565ns
-mean:   reps:10 iterations:1054135040 runtime:0.595s ns/op:0.565ns
-median: reps:10 iterations:1054135040 runtime:0.595s ns/op:0.565ns
-stddev: reps:10 iterations:1054135040 runtime:0.001s ns/op:0.001ns
+name repetitions:10   iterations        time   time/iterations
+add                   1054135040     0.595 s       0.564 ns/op
+add                   1054135040     0.596 s       0.565 ns/op
+add                   1054135040     0.594 s       0.563 ns/op
+add                   1054135040     0.595 s       0.564 ns/op
+add                   1054135040     0.594 s       0.563 ns/op
+add                   1054135040     0.594 s       0.563 ns/op
+add                   1054135040     0.594 s       0.563 ns/op
+add                   1054135040     0.592 s       0.562 ns/op
+add                   1054135040     0.595 s       0.565 ns/op
+add                   1054135040     0.594 s       0.563 ns/op
+add                   1054135040     0.594 s       0.564 ns/op mean
+add                   1054135040     0.594 s       0.563 ns/op median
+add                   1054135040     0.001 s       0.001 ns/op stddev
 OK
 All tests passed.
 
-real	0m16.830s
-user	0m16.710s
-sys	0m0.085s
+real	0m17.206s
+user	0m17.090s
+sys	0m0.093s
 
 $ objdump --source -d -M intel ./zig-cache/test > benchmark.fast.asm
 ```

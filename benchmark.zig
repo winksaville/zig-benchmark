@@ -21,6 +21,8 @@ const Allocator = mem.Allocator;
 const ArrayList = std.ArrayList;
 const Timer = std.os.time.Timer;
 const mem = std.mem;
+const bufPrint = std.fmt.bufPrint;
+const format = std.fmt.format;
 const warn = std.debug.warn;
 const assert = std.debug.assert;
 
@@ -60,6 +62,7 @@ const BenchmarkFramework = struct {
         }
     };
 
+    pub name: []const u8,
     pub logl: usize,
     pub min_runtime_ns: u64,
     pub repetitions: u64,
@@ -69,8 +72,9 @@ const BenchmarkFramework = struct {
     results: ArrayList(Result),
 
     /// Initialize benchmark framework
-    pub fn init(pAllocator: *Allocator) Self {
+    pub fn init(name: []const u8, pAllocator: *Allocator) Self {
         return Self {
+            .name = name,
             .logl = 0,
             .min_runtime_ns = ns_per_s / 2,
             .repetitions = 1,
@@ -101,6 +105,7 @@ const BenchmarkFramework = struct {
             try bm.setup();
         }
 
+        var once = true;
         var iterations: u64 = 1;
         var rep: u64 = 0;
         while (rep < pSelf.repetitions) : (rep += 1) {
@@ -119,7 +124,7 @@ const BenchmarkFramework = struct {
                     break;
                 } else {
                     if (pSelf.logl >= 1) {
-                        pSelf.report(Result {.run_time_ns = run_time_ns, .iterations = iterations});
+                        try pSelf.report(Result {.run_time_ns = run_time_ns, .iterations = iterations}); warn("\n");
                     }
                     // Increase iterations count
                     var denom: u64 = undefined;
@@ -150,7 +155,15 @@ const BenchmarkFramework = struct {
             }
 
             // Report the last result
-            pSelf.report(pSelf.results.items[pSelf.results.len - 1]);
+            if (once) {
+                once = false;
+                try leftJustified(22, "name repetitions:{}", pSelf.repetitions);
+                try rightJustified(10, "{}", "iterations");
+                try rightJustified(12, "{}", "time");
+                try rightJustified(18, "{}", "time/iterations");
+                warn("\n");
+            }
+            try pSelf.report(pSelf.results.items[pSelf.results.len - 1]); warn("\n");
         }
 
         try pSelf.reportStats(pSelf.results);
@@ -177,12 +190,32 @@ const BenchmarkFramework = struct {
         return timer.read();
     }
 
-    fn report(pSelf: *Self, result: Result) void {
-        warn("iterations:{} runtime:{.3}s ns/op:{.3}ns\n",
-            result.iterations,
-            @intToFloat(f64, result.run_time_ns)/@intToFloat(f64, ns_per_s),
-            @intToFloat(f64, result.run_time_ns)/@intToFloat(f64, result.iterations),
-        );
+    fn padd(count: usize, char: u8) void {
+        var i: u32 = 0;
+        while (i < count) : (i += 1) {
+            warn("{c}", char);
+        }
+    }
+
+    fn rightJustified(width: usize, comptime fmt: []const u8, args: ...) !void {
+        var buffer: [40]u8 = undefined;
+        var str = try bufPrint(buffer[0..], fmt, args);
+        padd(width - str.len, ' ');
+        warn("{}", str[0..]);
+    }
+
+    fn leftJustified(width: usize, comptime fmt: []const u8, args: ...) !void {
+        var buffer: [40]u8 = undefined;
+        var str = try bufPrint(buffer[0..], fmt, args);
+        warn("{}", str[0..]);
+        padd(width - str.len, ' ');
+    }
+
+    fn report(pSelf: *Self, result: Result) !void {
+        try leftJustified(22, "{s}", pSelf.name);
+        try rightJustified(10, "{}", result.iterations);
+        try rightJustified(12, "{.3} s", @intToFloat(f64, result.run_time_ns)/@intToFloat(f64, ns_per_s));
+        try rightJustified(18, "{.3} ns/op", @intToFloat(f64, result.run_time_ns)/@intToFloat(f64, result.iterations));
     }
 
     fn reportStats(pSelf: *Self, results: ArrayList(Result)) !void {
@@ -191,13 +224,13 @@ const BenchmarkFramework = struct {
         for (results.toSlice()) |result, i| {
             sum += @intToFloat(f64, result.run_time_ns);
         }
-        warn("mean:   reps:{} ", results.len); pSelf.reportStatsMean(sum, pSelf.results);
-        warn("median: reps:{} ", results.len); try pSelf.reportStatsMedian(sum, pSelf.results);
-        warn("stddev: reps:{} ", results.len); pSelf.reportStatsStdDev(sum, pSelf.results);
+        try pSelf.reportStatsMean(sum, pSelf.results); warn(" mean\n");
+        try pSelf.reportStatsMedian(sum, pSelf.results); warn(" median\n");
+        try pSelf.reportStatsStdDev(sum, pSelf.results); warn(" stddev\n");
     }
 
-    fn reportStatsMean(pSelf: *Self, sum: f64, results: ArrayList(Result)) void {
-        pSelf.report(Result {
+    fn reportStatsMean(pSelf: *Self, sum: f64, results: ArrayList(Result)) !void {
+        try pSelf.report(Result {
             .run_time_ns = @floatToInt(u64, sum / @intToFloat(f64, results.len)),
             .iterations = results.items[0].iterations}
         );
@@ -205,17 +238,17 @@ const BenchmarkFramework = struct {
 
     fn reportStatsMedian(pSelf: *Self, sum: f64, results: ArrayList(Result)) !void {
         if (results.len < 3) {
-            pSelf.reportStatsMean(sum, results);
+            try pSelf.reportStatsMean(sum, results);
             return;
         }
 
-        pSelf.report(Result {
+        try pSelf.report(Result {
             .run_time_ns = @floatToInt(u64, try pSelf.statsMedian(sum, results)),
             .iterations = results.items[0].iterations}
         );
     }
 
-    fn reportStatsStdDev(pSelf: *Self, sum: f64, results: ArrayList(Result)) void {
+    fn reportStatsStdDev(pSelf: *Self, sum: f64, results: ArrayList(Result)) !void {
         var std_dev: f64 = 0;
         if (results.len <= 1) {
             std_dev = 0;
@@ -223,7 +256,7 @@ const BenchmarkFramework = struct {
             std_dev = pSelf.statsStdDev(sum, results);
         }
 
-        pSelf.report(Result {
+        try pSelf.report(Result {
             .run_time_ns = @floatToInt(u64, std_dev),
             .iterations = results.items[0].iterations}
         );
@@ -323,7 +356,7 @@ test "benchmark.add" {
     };
 
     // Create an instance of the framework and optionally change min_runtime_ns
-    var bf = BenchmarkFramework.init(std.debug.global_allocator);
+    var bf = BenchmarkFramework.init("add", std.debug.global_allocator);
     //bf.min_runtime_ns = ns_per_s * 3;
     bf.logl = 0;
     bf.repetitions = 10;
