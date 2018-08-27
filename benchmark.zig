@@ -45,6 +45,7 @@ const BenchmarkFramework = struct {
 
     pub logl: usize,
     pub min_runtime_ns: u64,
+    pub repetitions: u64,
     pub max_iterations: u64,
     timer: Timer,
 
@@ -53,6 +54,7 @@ const BenchmarkFramework = struct {
         return Self {
             .logl = 0,
             .min_runtime_ns = ns_per_s / 2,
+            .repetitions = 1,
             .max_iterations = 100000000000,
             .timer = undefined,
         };
@@ -60,9 +62,6 @@ const BenchmarkFramework = struct {
 
     /// Run the benchmark
     pub fn run(pSelf: *Self, comptime T: type) !void {
-        var run_time: u64 = 0;
-        var iterations: u64 = 1;
-
         if (pSelf.logl >= 1)
             warn("run: logl={} min_runtime_ns={} max_iterations={}\n",
                     pSelf.logl, pSelf.min_runtime_ns, pSelf.max_iterations);
@@ -81,42 +80,55 @@ const BenchmarkFramework = struct {
             try bm.setup();
         }
 
-        // Loop until iterations == max_iterations or run_time >= min_runtime_ns
-        while (iterations <= pSelf.max_iterations) {
-            run_time = try pSelf.runIterations(T, &bm, iterations);
-            if (pSelf.logl >= 1) pSelf.report(run_time, iterations);
-            if ((run_time >= pSelf.min_runtime_ns) or (iterations >= pSelf.max_iterations)) {
-                break;
-            } else {
-                var denom: u64 = undefined;
-                var numer: u64 = undefined;
-                if (run_time < 1000) {
-                    numer = 1000;
-                    denom = 1;
-                } else if (run_time < (pSelf.min_runtime_ns / 10)) {
-                    numer = 10;
-                    denom = 1;
+        var iterations: u64 = 1;
+        var rep: u64 = 0;
+        while (rep < pSelf.repetitions) : (rep += 1) {
+            var run_time: u64 = 0;
+
+            // This loop increases iterations until the time is at least min_runtime_ns.
+            // uses that iterations count for each subsequent repetition.
+            while (iterations <= pSelf.max_iterations) {
+                // Run the current iterations
+                run_time = try pSelf.runIterations(T, &bm, iterations);
+
+                // If it took >= min_runtime_ns or was very large we'll do the next repeition.
+                if ((run_time >= pSelf.min_runtime_ns) or (iterations >= pSelf.max_iterations)) {
+                    // Do next repetition
+                    break;
                 } else {
-                    numer = 14;
-                    denom = 10;
+                    // Increase iterations count
+                    if (pSelf.logl >= 1) pSelf.report(run_time, iterations);
+
+                    var denom: u64 = undefined;
+                    var numer: u64 = undefined;
+                    if (run_time < 1000) {
+                        numer = 1000;
+                        denom = 1;
+                    } else if (run_time < (pSelf.min_runtime_ns / 10)) {
+                        numer = 10;
+                        denom = 1;
+                    } else {
+                        numer = 14;
+                        denom = 10;
+                    }
+                    iterations = (iterations * numer) / denom;
+                    if (iterations > pSelf.max_iterations) {
+                        iterations = pSelf.max_iterations;
+                    }
+                    if (pSelf.logl >= 2) warn("iteratons:{} numer:{} denom:{}\n", iterations, numer, denom);
                 }
-                iterations = (iterations * numer) / denom;
-                if (iterations > pSelf.max_iterations) {
-                    iterations = pSelf.max_iterations;
-                }
-                if (pSelf.logl >= 2) warn("iteratons:{} numer:{} denom:{}\n", iterations, numer, denom);
             }
-        }
 
-        // Call bm.tearDown with try if needed
-        if (comptime @typeOf(T.tearDown).ReturnType == void) {
-            bm.tearDown();
-        } else {
-            try bm.tearDown();
-        }
+            // Call bm.tearDown with try if needed
+            if (comptime @typeOf(T.tearDown).ReturnType == void) {
+                bm.tearDown();
+            } else {
+                try bm.tearDown();
+            }
 
-        // Report the results
-        pSelf.report(run_time, iterations);
+            // Report the results
+            pSelf.report(run_time, iterations);
+        }
     }
 
     /// Run the specified number of iterations returning the time in ns
@@ -191,7 +203,7 @@ test "benchmark.add" {
 
         // TearDown called after the last call to Self.benchmark, may return void or !void
         fn tearDown(pSelf: *Self) !void {
-            if (pSelf.r != pSelf.a + pSelf.b) return error.Failed;
+            if (pSelf.r != u128(pSelf.a) + u128(pSelf.b)) return error.Failed;
         }
     };
 
@@ -199,6 +211,7 @@ test "benchmark.add" {
     var bf = BenchmarkFramework.init();
     //bf.min_runtime_ns = ns_per_s * 3;
     bf.logl = 1;
+    bf.repetitions = 5;
 
     // Since this is a test print a \n before we run
     warn("\n");
