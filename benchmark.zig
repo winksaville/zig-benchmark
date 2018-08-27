@@ -17,6 +17,8 @@ const TypeId = builtin.TypeId;
 const AtomicOrder = builtin.AtomicOrder;
 
 const std = @import("std");
+const Allocator = mem.Allocator;
+const ArrayList = std.ArrayList;
 const Timer = std.os.time.Timer;
 const mem = std.mem;
 const warn = std.debug.warn;
@@ -43,20 +45,29 @@ fn sfence() void {
 const BenchmarkFramework = struct {
     const Self = this;
 
+    const Result = struct {
+        run_time_ns: u64,
+        iterations: u64,
+    };
+
     pub logl: usize,
     pub min_runtime_ns: u64,
     pub repetitions: u64,
     pub max_iterations: u64,
     timer: Timer,
+    pAllocator: *Allocator,
+    results: ArrayList(Result),
 
     /// Initialize benchmark framework
-    pub fn init() Self {
+    pub fn init(pAllocator: *Allocator) Self {
         return Self {
             .logl = 0,
             .min_runtime_ns = ns_per_s / 2,
             .repetitions = 1,
             .max_iterations = 100000000000,
             .timer = undefined,
+            .pAllocator = pAllocator,
+            .results = ArrayList(Result).init(pAllocator),
         };
     }
 
@@ -83,28 +94,30 @@ const BenchmarkFramework = struct {
         var iterations: u64 = 1;
         var rep: u64 = 0;
         while (rep < pSelf.repetitions) : (rep += 1) {
-            var run_time: u64 = 0;
+            var run_time_ns: u64 = 0;
 
             // This loop increases iterations until the time is at least min_runtime_ns.
             // uses that iterations count for each subsequent repetition.
             while (iterations <= pSelf.max_iterations) {
                 // Run the current iterations
-                run_time = try pSelf.runIterations(T, &bm, iterations);
+                run_time_ns = try pSelf.runIterations(T, &bm, iterations);
 
                 // If it took >= min_runtime_ns or was very large we'll do the next repeition.
-                if ((run_time >= pSelf.min_runtime_ns) or (iterations >= pSelf.max_iterations)) {
-                    // Do next repetition
+                if ((run_time_ns >= pSelf.min_runtime_ns) or (iterations >= pSelf.max_iterations)) {
+                    // Append the result and do the next iteration
+                    try pSelf.results.append(Result { .run_time_ns = run_time_ns, .iterations = iterations});
                     break;
                 } else {
+                    if (pSelf.logl >= 1) {
+                        pSelf.report(Result {.run_time_ns = run_time_ns, .iterations = iterations});
+                    }
                     // Increase iterations count
-                    if (pSelf.logl >= 1) pSelf.report(run_time, iterations);
-
                     var denom: u64 = undefined;
                     var numer: u64 = undefined;
-                    if (run_time < 1000) {
+                    if (run_time_ns < 1000) {
                         numer = 1000;
                         denom = 1;
-                    } else if (run_time < (pSelf.min_runtime_ns / 10)) {
+                    } else if (run_time_ns < (pSelf.min_runtime_ns / 10)) {
                         numer = 10;
                         denom = 1;
                     } else {
@@ -126,8 +139,8 @@ const BenchmarkFramework = struct {
                 try bm.tearDown();
             }
 
-            // Report the results
-            pSelf.report(run_time, iterations);
+            // Report the last result
+            pSelf.report(pSelf.results.items[pSelf.results.len - 1]);
         }
     }
 
@@ -152,11 +165,11 @@ const BenchmarkFramework = struct {
         return timer.read();
     }
 
-    fn report(pSelf: *Self, run_time_ns: u64, iterations: u64) void {
+    fn report(pSelf: *Self, result: Result) void {
         warn("iterations:{} runtime:{.3}s ns/op:{.3}ns\n",
-            iterations,
-            @intToFloat(f64, run_time_ns)/@intToFloat(f64, ns_per_s),
-            @intToFloat(f64, run_time_ns)/@intToFloat(f64, iterations),
+            result.iterations,
+            @intToFloat(f64, result.run_time_ns)/@intToFloat(f64, ns_per_s),
+            @intToFloat(f64, result.run_time_ns)/@intToFloat(f64, result.iterations),
         );
     }
 };
@@ -208,7 +221,7 @@ test "benchmark.add" {
     };
 
     // Create an instance of the framework and optionally change min_runtime_ns
-    var bf = BenchmarkFramework.init();
+    var bf = BenchmarkFramework.init(std.debug.global_allocator);
     //bf.min_runtime_ns = ns_per_s * 3;
     bf.logl = 1;
     bf.repetitions = 5;
