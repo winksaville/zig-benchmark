@@ -48,6 +48,16 @@ const BenchmarkFramework = struct {
     const Result = struct {
         run_time_ns: u64,
         iterations: u64,
+
+        // Ascending compare lhs < rhs
+        fn asc(lhs: Result, rhs: Result) bool {
+            return lhs.run_time_ns < rhs.run_time_ns;
+        }
+
+        // Descending compare lhs > rhs
+        fn desc(lhs: Result, rhs: Result) bool {
+            return lhs.run_time_ns > rhs.run_time_ns;
+        }
     };
 
     pub logl: usize,
@@ -142,6 +152,8 @@ const BenchmarkFramework = struct {
             // Report the last result
             pSelf.report(pSelf.results.items[pSelf.results.len - 1]);
         }
+
+        try pSelf.reportStats(pSelf.results);
     }
 
     /// Run the specified number of iterations returning the time in ns
@@ -171,6 +183,96 @@ const BenchmarkFramework = struct {
             @intToFloat(f64, result.run_time_ns)/@intToFloat(f64, ns_per_s),
             @intToFloat(f64, result.run_time_ns)/@intToFloat(f64, result.iterations),
         );
+    }
+
+    fn reportStats(pSelf: *Self, results: ArrayList(Result)) !void {
+        // Compute sum
+        var sum: f64 = 0;
+        for (results.toSlice()) |result, i| {
+            sum += @intToFloat(f64, result.run_time_ns);
+        }
+        warn("mean:   reps:{} ", results.len); pSelf.reportStatsMean(sum, pSelf.results);
+        warn("median: reps:{} ", results.len); try pSelf.reportStatsMedian(sum, pSelf.results);
+        warn("stddev: reps:{} ", results.len); pSelf.reportStatsStdDev(sum, pSelf.results);
+    }
+
+    fn reportStatsMean(pSelf: *Self, sum: f64, results: ArrayList(Result)) void {
+        pSelf.report(Result {
+            .run_time_ns = @floatToInt(u64, sum / @intToFloat(f64, results.len)),
+            .iterations = results.items[0].iterations}
+        );
+    }
+
+    fn reportStatsMedian(pSelf: *Self, sum: f64, results: ArrayList(Result)) !void {
+        if (results.len < 3) {
+            pSelf.reportStatsMean(sum, results);
+            return;
+        }
+
+        pSelf.report(Result {
+            .run_time_ns = @floatToInt(u64, try pSelf.statsMedian(sum, results)),
+            .iterations = results.items[0].iterations}
+        );
+    }
+
+    fn reportStatsStdDev(pSelf: *Self, sum: f64, results: ArrayList(Result)) void {
+        var std_dev: f64 = 0;
+        if (results.len <= 1) {
+            std_dev = 0;
+        } else {
+            std_dev = pSelf.statsStdDev(sum, results);
+        }
+
+        pSelf.report(Result {
+            .run_time_ns = @floatToInt(u64, std_dev),
+            .iterations = results.items[0].iterations}
+        );
+    }
+
+    fn statsMean(pSelf: *Self, sum: f64, results: ArrayList(Result)) f64 {
+            return sum / @intToFloat(f64, results.len);
+    }
+
+    fn statsMedian(pSelf: *Self, sum: f64, results: ArrayList(Result)) !f64 {
+        if (results.len < 3) {
+            return pSelf.statsMean(sum, results);
+        }
+
+        // Make a copy and sort it
+        var copy = ArrayList(Result).init(pSelf.pAllocator);
+        for (results.toSlice()) |result| {
+            try copy.append(result);
+        }
+        std.sort.sort(Result, copy.toSlice(), Result.asc);
+
+        // Determine the median
+        var center = copy.len / 2;
+        var median: f64 = undefined;
+        if ((copy.len & 1) == 1) {
+            // Odd number of items, use center
+            median = @intToFloat(f64, copy.items[center].run_time_ns);
+        } else {
+            // Even number of items, use average of items[center] and items[center - 1]
+            median = @intToFloat(f64, copy.items[center-1].run_time_ns + copy.items[center].run_time_ns) / 2;
+        }
+        return median;
+    }
+
+    fn statsStdDev(pSelf: *Self, sum: f64, results: ArrayList(Result)) f64 {
+        var std_dev: f64 = 0;
+        if (results.len <= 1) {
+            std_dev = 0;
+        } else {
+            var sum_of_squares: f64 = 0;
+            var mean: f64 = pSelf.statsMean(sum, results);
+            for (results.toSlice()) |result| {
+                var diff = @intToFloat(f64, result.run_time_ns) - mean;
+                var square = diff * diff;
+                sum_of_squares += square;
+            }
+            std_dev = @sqrt(f64, sum_of_squares / @intToFloat(f64, results.len - 1));
+        }
+        return std_dev;
     }
 };
 
@@ -223,8 +325,8 @@ test "benchmark.add" {
     // Create an instance of the framework and optionally change min_runtime_ns
     var bf = BenchmarkFramework.init(std.debug.global_allocator);
     //bf.min_runtime_ns = ns_per_s * 3;
-    bf.logl = 1;
-    bf.repetitions = 5;
+    bf.logl = 0;
+    bf.repetitions = 10;
 
     // Since this is a test print a \n before we run
     warn("\n");
