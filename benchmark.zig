@@ -44,7 +44,7 @@ fn sfence() void {
 }
 
 /// A possible API for a benchmark framework
-const BenchmarkFramework = struct {
+const Benchmark = struct {
     const Self = this;
 
     const Result = struct {
@@ -356,14 +356,14 @@ test "benchmark.add" {
     };
 
     // Create an instance of the framework and optionally change min_runtime_ns
-    var bf = BenchmarkFramework.init("add", std.debug.global_allocator);
-    //bf.min_runtime_ns = ns_per_s * 3;
-    bf.logl = 0;
-    bf.repetitions = 10;
+    var bm = Benchmark.init("BmAdd", std.debug.global_allocator);
+    //bm.min_runtime_ns = ns_per_s * 3;
+    bm.logl = 0;
+    bm.repetitions = 10;
 
     // Since this is a test print a \n before we run
     warn("\n");
 
     // Run the benchmark
-    try bf.run(BmAdd);
+    try bm.run(BmAdd);
 }

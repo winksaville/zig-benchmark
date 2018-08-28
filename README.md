@@ -78,7 +78,7 @@ test "benchmark.add" {
     };
 
     // Create an instance of the framework and optionally change min_runtime_ns
-    var bf = BenchmarkFramework.init(std.debug.global_allocator);
+    var bf = BenchmarkFramework.init("add", std.debug.global_allocator);
     //bf.min_runtime_ns = ns_per_s * 3;
     bf.logl = 0;
     bf.repetitions = 10;
@@ -96,25 +96,26 @@ test "benchmark.add" {
 $ time zig test --release-fast benchmark.zig
 Test 1/1 benchmark.add...
 name repetitions:10   iterations        time   time/iterations
-add                   1054135040     0.595 s       0.564 ns/op
-add                   1054135040     0.596 s       0.565 ns/op
-add                   1054135040     0.594 s       0.563 ns/op
-add                   1054135040     0.595 s       0.564 ns/op
-add                   1054135040     0.594 s       0.563 ns/op
-add                   1054135040     0.594 s       0.563 ns/op
-add                   1054135040     0.594 s       0.563 ns/op
-add                   1054135040     0.592 s       0.562 ns/op
-add                   1054135040     0.595 s       0.565 ns/op
-add                   1054135040     0.594 s       0.563 ns/op
-add                   1054135040     0.594 s       0.564 ns/op mean
-add                   1054135040     0.594 s       0.563 ns/op median
-add                   1054135040     0.001 s       0.001 ns/op stddev
+BmAdd                 1054135040     0.596 s       0.565 ns/op
+BmAdd                 1054135040     0.595 s       0.564 ns/op
+BmAdd                 1054135040     0.597 s       0.566 ns/op
+BmAdd                 1054135040     0.594 s       0.564 ns/op
+BmAdd                 1054135040     0.597 s       0.566 ns/op
+BmAdd                 1054135040     0.598 s       0.567 ns/op
+BmAdd                 1054135040     0.595 s       0.565 ns/op
+BmAdd                 1054135040     0.598 s       0.568 ns/op
+BmAdd                 1054135040     0.595 s       0.565 ns/op
+BmAdd                 1054135040     0.598 s       0.567 ns/op
+BmAdd                 1054135040     0.596 s       0.566 ns/op mean
+BmAdd                 1054135040     0.596 s       0.566 ns/op median
+BmAdd                 1054135040     0.001 s       0.001 ns/op stddev
 OK
 All tests passed.
+[1]+  Done                    git gui
 
-real	0m17.206s
-user	0m17.090s
-sys	0m0.093s
+real	0m17.267s
+user	0m17.153s
+sys	0m0.089s
 
 $ objdump --source -d -M intel ./zig-cache/test > benchmark.fast.asm
 ```
