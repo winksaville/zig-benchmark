@@ -44,7 +44,7 @@ fn sfence() void {
 }
 
 /// A possible API for a benchmark framework
-const Benchmark = struct {
+pub const Benchmark = struct {
     const Self = this;
 
     const Result = struct {
@@ -158,9 +158,9 @@ const Benchmark = struct {
             if (once) {
                 once = false;
                 try leftJustified(22, "name repetitions:{}", pSelf.repetitions);
-                try rightJustified(10, "{}", "iterations");
+                try rightJustified(14, "{}", "iterations");
                 try rightJustified(12, "{}", "time");
-                try rightJustified(18, "{}", "time/iterations");
+                try rightJustified(18, "{}", "time/operation");
                 warn("\n");
             }
             try pSelf.report(pSelf.results.items[pSelf.results.len - 1]); warn("\n");
@@ -190,7 +190,7 @@ const Benchmark = struct {
         return timer.read();
     }
 
-    fn padd(count: usize, char: u8) void {
+    fn pad(count: usize, char: u8) void {
         var i: u32 = 0;
         while (i < count) : (i += 1) {
             warn("{c}", char);
@@ -200,7 +200,9 @@ const Benchmark = struct {
     fn rightJustified(width: usize, comptime fmt: []const u8, args: ...) !void {
         var buffer: [40]u8 = undefined;
         var str = try bufPrint(buffer[0..], fmt, args);
-        padd(width - str.len, ' ');
+        if (width > str.len) {
+            pad(width - str.len, ' ');
+        }
         warn("{}", str[0..]);
     }
 
@@ -208,12 +210,14 @@ const Benchmark = struct {
         var buffer: [40]u8 = undefined;
         var str = try bufPrint(buffer[0..], fmt, args);
         warn("{}", str[0..]);
-        padd(width - str.len, ' ');
+        if (width > str.len) {
+            pad(width - str.len, ' ');
+        }
     }
 
     fn report(pSelf: *Self, result: Result) !void {
         try leftJustified(22, "{s}", pSelf.name);
-        try rightJustified(10, "{}", result.iterations);
+        try rightJustified(14, "{}", result.iterations);
         try rightJustified(12, "{.3} s", @intToFloat(f64, result.run_time_ns)/@intToFloat(f64, ns_per_s));
         try rightJustified(18, "{.3} ns/op", @intToFloat(f64, result.run_time_ns)/@intToFloat(f64, result.iterations));
     }
@@ -308,6 +312,39 @@ const Benchmark = struct {
         return std_dev;
     }
 };
+
+test "BmEmpty" {
+    // Our benchmark
+    const BmEmpty = struct {
+        const Self = this;
+
+        // Initialize Self
+        fn init() Self {
+            return Self {};
+        }
+
+        // Setup prior to the first call to Self.benchmark, may return void or !void
+        fn setup(pSelf: *Self) void {
+        }
+
+        // Called on every iteration of the benchmark, may return void or !void
+        fn benchmark(pSelf: *Self) void {
+        }
+
+        // TearDown called after the last call to Self.benchmark, may return void or !void
+        fn tearDown(pSelf: *Self) void {
+        }
+    };
+
+    // Create an instance of the framework and optionally change min_runtime_ns
+    var bm = Benchmark.init("BmEmpty", std.debug.global_allocator);
+
+    // Since this is a test print a \n before we run
+    warn("\n");
+
+    // Run the benchmark
+    try bm.run(BmEmpty);
+}
 
 test "benchmark.add" {
     // Our benchmark
