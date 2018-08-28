@@ -93,10 +93,17 @@ pub const Benchmark = struct {
 
         // Make sure T is a struct
         const info = @typeInfo(T);
-        if (TypeId(info) != TypeId.Struct) return error.T_NotStruct;
+        if (TypeId(info) != TypeId.Struct) @compileError("T is not a Struct");
 
-        // Create a benchmark struct, it has to have an init which returns Self
-        var bm = T.init();
+        // Call bm.init if available
+        var bm: T = undefined;
+        if (comptime defExists("init", info.Struct.defs)) {
+            if (comptime @typeOf(T.init).ReturnType == T) {
+                bm = T.init();
+            } else {
+                @compileError("T.init does not return T");
+            }
+        }
 
         // Call bm.setup with try if needed
         if (comptime defExists("setup", info.Struct.defs)) {
@@ -183,10 +190,17 @@ pub const Benchmark = struct {
         var timer = try Timer.start();
         var iter = iterations;
         while (iter > 0) : (iter -= 1) {
-            if (comptime @typeOf(T.benchmark).ReturnType == void) {
-                pBm.benchmark();
+            const args_len = comptime @typeInfo(@typeOf(T.benchmark)).Fn.args.len;
+            if (comptime args_len == 0) {
+                T.benchmark();
+            } else if (comptime args_len == 1) {
+                if (comptime @typeOf(T.benchmark).ReturnType == void) {
+                    pBm.benchmark();
+                } else {
+                    try pBm.benchmark();
+                }
             } else {
-                try pBm.benchmark();
+                @compileError("Expected T.benchmark to have 0 or 1 parameter");
             }
         }
         return timer.read();
@@ -324,32 +338,41 @@ pub const Benchmark = struct {
     }
 };
 
+test "BmNoSelf" {
+    // Our benchmark
+    const BmNoSelf = struct {
+        // Called on every iteration of the benchmark, may return void or !void
+        fn benchmark() void {
+        }
+    };
+
+    // Since this is a test print a \n before we run
+    warn("\n");
+
+    // Create an instance of Benchmark and run
+    var bm = Benchmark.init("BmNoSelf", std.debug.global_allocator);
+    try bm.run(BmNoSelf);
+}
+
 test "BmEmpty" {
     // Our benchmark
     const BmEmpty = struct {
         const Self = this;
-
-        // Initialize Self
-        fn init() Self {
-            return Self {};
-        }
 
         // Called on every iteration of the benchmark, may return void or !void
         fn benchmark(pSelf: *Self) void {
         }
     };
 
-    // Create an instance of the framework and optionally change min_runtime_ns
-    var bm = Benchmark.init("BmEmpty", std.debug.global_allocator);
-
     // Since this is a test print a \n before we run
     warn("\n");
 
-    // Run the benchmark
+    // Create an instance of Benchmark and run
+    var bm = Benchmark.init("BmEmpty", std.debug.global_allocator);
     try bm.run(BmEmpty);
 }
 
-test "benchmark.add" {
+test "BmAdd" {
     // Our benchmark
     const BmAdd = struct {
         const Self = this;
@@ -395,15 +418,11 @@ test "benchmark.add" {
         }
     };
 
-    // Create an instance of the framework and optionally change min_runtime_ns
-    var bm = Benchmark.init("BmAdd", std.debug.global_allocator);
-    //bm.min_runtime_ns = ns_per_s * 3;
-    bm.logl = 0;
-    bm.repetitions = 10;
-
     // Since this is a test print a \n before we run
     warn("\n");
 
-    // Run the benchmark
+    // Create an instance of Benchmark, set 10 iterations and run
+    var bm = Benchmark.init("BmAdd", std.debug.global_allocator);
+    bm.repetitions = 10;
     try bm.run(BmAdd);
 }
