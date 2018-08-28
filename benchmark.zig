@@ -99,7 +99,7 @@ pub const Benchmark = struct {
         var bm = T.init();
 
         // Call bm.setup with try if needed
-        if (comptime doesFnExist("setup", info.Struct.defs)) {
+        if (comptime defExists("setup", info.Struct.defs)) {
             if (comptime @typeOf(T.setup).ReturnType == void) {
                 bm.setup();
             } else {
@@ -150,7 +150,7 @@ pub const Benchmark = struct {
             }
 
             // Call bm.tearDown with try if needed
-            if (comptime doesFnExist("tearDown", info.Struct.defs)) {
+            if (comptime defExists("tearDown", info.Struct.defs)) {
                 if (comptime @typeOf(T.tearDown).ReturnType == void) {
                     bm.tearDown();
                 } else {
@@ -192,7 +192,7 @@ pub const Benchmark = struct {
         return timer.read();
     }
 
-    fn doesFnExist(name: [] const u8, comptime defs: []TypeInfo.Definition) bool {
+    fn defExists(name: [] const u8, comptime defs: []TypeInfo.Definition) bool {
         for (defs) |def| {
             if (std.mem.eql(u8, def.name, name)) {
                 return true;
