@@ -200,20 +200,24 @@ pub const Benchmark = struct {
         var iter = iterations;
         while (iter > 0) : (iter -= 1) {
             const args_len = comptime @typeInfo(@typeOf(T.benchmark)).Fn.args.len;
-            if (comptime args_len == 0) {
-                if (comptime @typeOf(T.benchmark).ReturnType == void) {
-                    T.benchmark();
-                } else {
-                    try T.benchmark();
-                }
-            } else if (comptime args_len == 1) {
-                if (comptime @typeOf(T.benchmark).ReturnType == void) {
-                    pBm.benchmark();
-                } else {
-                    try pBm.benchmark();
-                }
-            } else {
-                @compileError("Expected T.benchmark to have 0 or 1 parameter");
+            switch (comptime args_len) {
+                0 => {
+                    if (comptime @typeOf(T.benchmark).ReturnType == void) {
+                        T.benchmark();
+                    } else {
+                        try T.benchmark();
+                    }
+                },
+                1 => {
+                    if (comptime @typeOf(T.benchmark).ReturnType == void) {
+                        pBm.benchmark();
+                    } else {
+                        try pBm.benchmark();
+                    }
+                },
+                else => {
+                    @compileError("Expected T.benchmark to have 0 or 1 parameter");
+                },
             }
         }
         return timer.read();
