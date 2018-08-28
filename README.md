@@ -18,11 +18,11 @@ these techniques so for now I'm just using zig's Timer.
 A benchmark is a struct with fn's init, setup, benchmark and tearDown.
 - init is called to create an instance.
  - returns Self
-- setup is called once before benchmark is called.
+- optional setup is called once before benchmark is called.
  - May return void or !void
 - benchmark is called for each iteration.
  - May return void or !void
-- tearDown is called after all iterations.
+- optoinal tearDown is called after all iterations.
  - May return void or !void
 
 ## Example
@@ -47,7 +47,7 @@ test "benchmark.add" {
             };
         }
 
-        // Setup prior to the first call to Self.benchmark, may return void or !void
+        // Optional setup prior to the first call to Self.benchmark, may return void or !void
         fn setup(pSelf: *Self) !void {
             var timer = try Timer.start();
             const DefaultPrng = std.rand.DefaultPrng;
@@ -71,7 +71,7 @@ test "benchmark.add" {
             //mfence();
         }
 
-        // TearDown called after the last call to Self.benchmark, may return void or !void
+        // Optional tearDown called after the last call to Self.benchmark, may return void or !void
         fn tearDown(pSelf: *Self) !void {
             if (pSelf.r != u128(pSelf.a) + u128(pSelf.b)) return error.Failed;
         }
@@ -93,37 +93,43 @@ test "benchmark.add" {
 
 ## Test on my desktop debug
 ```bash
-$ time zig test --release-fast benchmark.zig
-Test 1/1 benchmark.add...
-name repetitions:10   iterations        time   time/iterations
-BmAdd                 1054135040     0.596 s       0.565 ns/op
-BmAdd                 1054135040     0.595 s       0.564 ns/op
-BmAdd                 1054135040     0.597 s       0.566 ns/op
-BmAdd                 1054135040     0.594 s       0.564 ns/op
-BmAdd                 1054135040     0.597 s       0.566 ns/op
-BmAdd                 1054135040     0.598 s       0.567 ns/op
-BmAdd                 1054135040     0.595 s       0.565 ns/op
-BmAdd                 1054135040     0.598 s       0.568 ns/op
-BmAdd                 1054135040     0.595 s       0.565 ns/op
-BmAdd                 1054135040     0.598 s       0.567 ns/op
-BmAdd                 1054135040     0.596 s       0.566 ns/op mean
-BmAdd                 1054135040     0.596 s       0.566 ns/op median
-BmAdd                 1054135040     0.001 s       0.001 ns/op stddev
+$ time zig test benchmark.zig
+Test 1/2 BmEmpty...
+name repetitions:1        iterations        time    time/operation
+BmEmpty                    196000000     0.681 s       3.474 ns/op
+BmEmpty                    196000000     0.681 s       3.474 ns/op mean
+BmEmpty                    196000000     0.681 s       3.474 ns/op median
+BmEmpty                    196000000     0.000 s       0.000 ns/op stddev
+OK
+Test 2/2 benchmark.add...
+name repetitions:10       iterations        time    time/operation
+BmAdd                      105413504     0.591 s       5.607 ns/op
+BmAdd                      105413504     0.595 s       5.642 ns/op
+BmAdd                      105413504     0.592 s       5.616 ns/op
+BmAdd                      105413504     0.595 s       5.648 ns/op
+BmAdd                      105413504     0.593 s       5.624 ns/op
+BmAdd                      105413504     0.595 s       5.642 ns/op
+BmAdd                      105413504     0.594 s       5.638 ns/op
+BmAdd                      105413504     0.593 s       5.629 ns/op
+BmAdd                      105413504     0.594 s       5.632 ns/op
+BmAdd                      105413504     0.592 s       5.616 ns/op
+BmAdd                      105413504     0.593 s       5.629 ns/op mean
+BmAdd                      105413504     0.594 s       5.630 ns/op median
+BmAdd                      105413504     0.001 s       0.014 ns/op stddev
 OK
 All tests passed.
-[1]+  Done                    git gui
 
-real	0m17.267s
-user	0m17.153s
-sys	0m0.089s
+real	0m9.717s
+user	0m9.620s
+sys	0m0.082s
 
 $ objdump --source -d -M intel ./zig-cache/test > benchmark.fast.asm
 ```
 
 Below is the loop in asm, it's generally a good idea to look
-at the generated assembler code so you get "know" what is
-being measured. Because of great optimization zig & llvm do
-it may not be what you expect.
+at the generated assembler code so you "know" what is being
+measured. Because of great optimization zig & llvm do it may
+not be what you expect.
 ```
         while (iter > 0) : (iter -= 1) {
   20affc:	4d 85 ff             	test   r15,r15

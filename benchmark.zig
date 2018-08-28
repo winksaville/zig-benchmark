@@ -99,10 +99,12 @@ pub const Benchmark = struct {
         var bm = T.init();
 
         // Call bm.setup with try if needed
-        if (comptime @typeOf(T.setup).ReturnType == void) {
-            bm.setup();
-        } else {
-            try bm.setup();
+        if (comptime doesFnExist("setup", info.Struct.defs)) {
+            if (comptime @typeOf(T.setup).ReturnType == void) {
+                bm.setup();
+            } else {
+                try bm.setup();
+            }
         }
 
         var once = true;
@@ -148,10 +150,12 @@ pub const Benchmark = struct {
             }
 
             // Call bm.tearDown with try if needed
-            if (comptime @typeOf(T.tearDown).ReturnType == void) {
-                bm.tearDown();
-            } else {
-                try bm.tearDown();
+            if (comptime doesFnExist("tearDown", info.Struct.defs)) {
+                if (comptime @typeOf(T.tearDown).ReturnType == void) {
+                    bm.tearDown();
+                } else {
+                    try bm.tearDown();
+                }
             }
 
             // Report the last result
@@ -176,8 +180,6 @@ pub const Benchmark = struct {
         pBm: *T,
         iterations: u64,
     ) !u64 {
-        const info = @typeInfo(T);
-
         var timer = try Timer.start();
         var iter = iterations;
         while (iter > 0) : (iter -= 1) {
@@ -188,6 +190,15 @@ pub const Benchmark = struct {
             }
         }
         return timer.read();
+    }
+
+    fn doesFnExist(name: [] const u8, comptime defs: []TypeInfo.Definition) bool {
+        for (defs) |def| {
+            if (std.mem.eql(u8, def.name, name)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     fn pad(count: usize, char: u8) void {
@@ -323,16 +334,8 @@ test "BmEmpty" {
             return Self {};
         }
 
-        // Setup prior to the first call to Self.benchmark, may return void or !void
-        fn setup(pSelf: *Self) void {
-        }
-
         // Called on every iteration of the benchmark, may return void or !void
         fn benchmark(pSelf: *Self) void {
-        }
-
-        // TearDown called after the last call to Self.benchmark, may return void or !void
-        fn tearDown(pSelf: *Self) void {
         }
     };
 
@@ -362,7 +365,7 @@ test "benchmark.add" {
             };
         }
 
-        // Setup prior to the first call to Self.benchmark, may return void or !void
+        // Optional setup prior to the first call to Self.benchmark, may return void or !void
         fn setup(pSelf: *Self) !void {
             var timer = try Timer.start();
             const DefaultPrng = std.rand.DefaultPrng;
@@ -386,7 +389,7 @@ test "benchmark.add" {
             //mfence();
         }
 
-        // TearDown called after the last call to Self.benchmark, may return void or !void
+        // Optional tearDown called after the last call to Self.benchmark, may return void or !void
         fn tearDown(pSelf: *Self) !void {
             if (pSelf.r != u128(pSelf.a) + u128(pSelf.b)) return error.Failed;
         }
