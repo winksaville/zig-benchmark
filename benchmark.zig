@@ -102,7 +102,7 @@ pub const Benchmark = struct {
             if (comptime @typeOf(T.init).ReturnType == T) {
                 bm = T.init();
             } else {
-                @compileError("T.init does not return T");
+                bm = try T.init();
             }
         }
 
@@ -563,6 +563,41 @@ test "BmNoSelf.error" {
             return error.TestError;
         }
     }), error.TestError);
+}
+
+test "BmSelf.init_error.setup.tearDown" {
+    // Since this is a test print a \n before we run
+    warn("\n");
+
+    // Test fn benchmark(pSelf) can return an error
+    var bm = Benchmark.init("BmEmpty.error", std.debug.global_allocator);
+    const BmSelf = struct {
+        const Self = this;
+
+        init_count: u64,
+        setup_count: u64,
+        benchmark_count: u64,
+        tearDown_count: u64,
+
+        fn init() !Self {
+            return error.InitError;
+        }
+
+        fn setup(pSelf: *Self) void {
+            pSelf.setup_count += 1;
+        }
+
+        // Called on every iteration of the benchmark, may return void or !void
+        fn benchmark(pSelf: *Self) void {
+            pSelf.benchmark_count += 1;
+        }
+
+        fn tearDown(pSelf: *Self) void {
+            pSelf.tearDown_count += 1;
+        }
+    };
+
+    assertError(bm.run(BmSelf), error.InitError);
 }
 
 test "BmSelf.init.setup_error.tearDown" {
