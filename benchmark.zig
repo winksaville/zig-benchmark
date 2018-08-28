@@ -130,11 +130,14 @@ pub const Benchmark = struct {
                 // If it took >= min_runtime_ns or was very large we'll do the next repeition.
                 if ((run_time_ns >= pSelf.min_runtime_ns) or (iterations >= pSelf.max_iterations)) {
                     // Append the result and do the next iteration
-                    try pSelf.results.append(Result { .run_time_ns = run_time_ns, .iterations = iterations});
+                    try pSelf.results.append(
+                            Result { .run_time_ns = run_time_ns, .iterations = iterations});
                     break;
                 } else {
                     if (pSelf.logl >= 1) {
-                        try pSelf.report(Result {.run_time_ns = run_time_ns, .iterations = iterations}); warn("\n");
+                        try pSelf.report(
+                            Result {.run_time_ns = run_time_ns, .iterations = iterations});
+                            warn("\n");
                     }
                     // Increase iterations count
                     var denom: u64 = undefined;
@@ -153,7 +156,9 @@ pub const Benchmark = struct {
                     if (iterations > pSelf.max_iterations) {
                         iterations = pSelf.max_iterations;
                     }
-                    if (pSelf.logl >= 2) warn("iteratons:{} numer:{} denom:{}\n", iterations, numer, denom);
+                    if (pSelf.logl >= 2) {
+                        warn("iteratons:{} numer:{} denom:{}\n", iterations, numer, denom);
+                    }
                 }
             }
 
@@ -250,8 +255,10 @@ pub const Benchmark = struct {
     fn report(pSelf: *Self, result: Result) !void {
         try leftJustified(22, "{s}", pSelf.name);
         try rightJustified(14, "{}", result.iterations);
-        try rightJustified(12, "{.3} s", @intToFloat(f64, result.run_time_ns)/@intToFloat(f64, ns_per_s));
-        try rightJustified(18, "{.3} ns/op", @intToFloat(f64, result.run_time_ns)/@intToFloat(f64, result.iterations));
+        try rightJustified(12, "{.3} s",
+                @intToFloat(f64, result.run_time_ns)/@intToFloat(f64, ns_per_s));
+        try rightJustified(18, "{.3} ns/op",
+                @intToFloat(f64, result.run_time_ns)/@intToFloat(f64, result.iterations));
     }
 
     fn reportStats(pSelf: *Self, results: ArrayList(Result)) !void {
@@ -322,7 +329,8 @@ pub const Benchmark = struct {
             median = @intToFloat(f64, copy.items[center].run_time_ns);
         } else {
             // Even number of items, use average of items[center] and items[center - 1]
-            median = @intToFloat(f64, copy.items[center-1].run_time_ns + copy.items[center].run_time_ns) / 2;
+            median = @intToFloat(f64, copy.items[center-1].run_time_ns
+                        + copy.items[center].run_time_ns) / 2;
         }
         return median;
     }
