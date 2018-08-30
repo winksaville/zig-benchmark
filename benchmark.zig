@@ -30,6 +30,11 @@ const assertError = std.debug.assertError;
 
 const ns_per_s = 1000000000;
 
+/// compiler fence, request compiler to not reorder around cfence.
+fn cfence() void {
+    asm volatile ("": : :"memory");
+}
+
 /// mfence instruction
 fn mfence() void {
     asm volatile ("mfence": : :"memory");
@@ -358,12 +363,25 @@ pub const Benchmark = struct {
     }
 };
 
-test "BmNoSelf.lfence" {
+test "BmSimple.cfence" {
     // Since this is a test print a \n before we run
     warn("\n");
 
     // Create an instance of Benchmark and run
-    var bm = Benchmark.init("BmNoSelf", std.debug.global_allocator);
+    var bm = Benchmark.init("BmSimple.cfence", std.debug.global_allocator);
+    _ = try bm.run(struct {
+        fn benchmark() void {
+            cfence();
+        }
+    });
+}
+
+test "BmSimple.lfence" {
+    // Since this is a test print a \n before we run
+    warn("\n");
+
+    // Create an instance of Benchmark and run
+    var bm = Benchmark.init("BmSimple.lfence", std.debug.global_allocator);
     _ = try bm.run(struct {
         fn benchmark() void {
             lfence();
@@ -371,28 +389,49 @@ test "BmNoSelf.lfence" {
     });
 }
 
-test "BmSelf.sfence" {
+test "BmSimple.sfence" {
     // Since this is a test print a \n before we run
     warn("\n");
 
     // Create an instance of Benchmark and run
-    var bm = Benchmark.init("BmSelf", std.debug.global_allocator);
+    var bm = Benchmark.init("BmSimple.sfence", std.debug.global_allocator);
     _ = try bm.run(struct {
-        const Self = this;
-
-        // Called on every iteration of the benchmark, may return void or !void
-        fn benchmark(pSelf: *Self) void {
+        fn benchmark() void {
             sfence();
         }
     });
 }
 
-test "BmSelf.mfence.init" {
+test "BmSimple.mfence" {
+    // Since this is a test print a \n before we run
+    warn("\n");
+
+    // Create an instance of Benchmark and run
+    var bm = Benchmark.init("BmSimple.mfence", std.debug.global_allocator);
+    _ = try bm.run(struct {
+        fn benchmark() void {
+            mfence();
+        }
+    });
+}
+
+// All of the BmPoor.xxx tests endup with no loops at all and take zero time,
+// but are "correct" do test that combinations of init, setup and tearDown work.
+//
+// Here is a sample of the code from a release-fast build, NOTE there is no loop at all:
+//                 self.start_time = @intCast(u64, ts.tv_sec) * u64(ns_per_s) + @intCast(u64, ts.tv_nsec);
+//   20d6c7:	c5 f9 6f 8c 24 90 00 	vmovdqa xmm1,XMMWORD PTR [rsp+0x90]
+//   20d6ce:	00 00 
+//         var ts: posix.timespec = undefined;
+//   20d6d0:	c5 f9 7f 84 24 90 00 	vmovdqa XMMWORD PTR [rsp+0x90],xmm0
+//   20d6d7:	00 00 
+
+test "BmPoor.init" {
     // Since this is a test print a \n before we run
     warn("\n");
 
     // Test fn benchmark(pSelf) can return an error
-    var bm = Benchmark.init("BmEmpty.error", std.debug.global_allocator);
+    var bm = Benchmark.init("BmPoor.init", std.debug.global_allocator);
     const BmSelf = struct {
         const Self = this;
 
@@ -413,7 +452,6 @@ test "BmSelf.mfence.init" {
         // Called on every iteration of the benchmark, may return void or !void
         fn benchmark(pSelf: *Self) void {
             pSelf.benchmark_count += 1;
-            mfence();
         }
     };
 
@@ -424,12 +462,12 @@ test "BmSelf.mfence.init" {
     assert(bmSelf.tearDown_count == 0);
 }
 
-test "BmSelf.init.setup" {
+test "BmPoor.init.setup" {
     // Since this is a test print a \n before we run
     warn("\n");
 
     // Test fn benchmark(pSelf) can return an error
-    var bm = Benchmark.init("BmEmpty.error", std.debug.global_allocator);
+    var bm = Benchmark.init("BmPoor.init.setup", std.debug.global_allocator);
     const BmSelf = struct {
         const Self = this;
 
@@ -451,7 +489,6 @@ test "BmSelf.init.setup" {
             pSelf.setup_count += 1;
         }
 
-        // Called on every iteration of the benchmark, may return void or !void
         fn benchmark(pSelf: *Self) void {
             pSelf.benchmark_count += 1;
         }
@@ -465,13 +502,12 @@ test "BmSelf.init.setup" {
     assert(bmSelf.tearDown_count == 0);
 }
 
-// Measure @atomicRmw Add operation
-test "BmSelf.init.setup.tearDown.AtomicRmwOp.Add" {
+test "BmPoor.init.setup.tearDown" {
     // Since this is a test print a \n before we run
     warn("\n");
 
     // Test fn benchmark(pSelf) can return an error
-    var bm = Benchmark.init("BmEmpty.error", std.debug.global_allocator);
+    var bm = Benchmark.init("BmPoor.init.setup.tearDown", std.debug.global_allocator);
     const BmSelf = struct {
         const Self = this;
 
@@ -493,55 +529,8 @@ test "BmSelf.init.setup.tearDown.AtomicRmwOp.Add" {
             pSelf.setup_count += 1;
         }
 
-        // This measures the cost of the atomic rmw add:
-        //                 self.start_time = @intCast(u64, ts.tv_sec) * u64(ns_per_s) + @intCast(u64, ts.tv_nsec);
-        //   20d897:	c5 f9 6f 8c 24 b0 00 	vmovdqa xmm1,XMMWORD PTR [rsp+0xb0]
-        //   20d89e:	00 00 
-        //         while (iter > 0) : (iter -= 1) {
-        //   20d8a0:	48 85 db             	test   rbx,rbx
-        //   20d8a3:	0f 84 8d 00 00 00    	je     20d936 <BmSelf.init.setup.tearDown.benchmark.AtomicRmwOp.Add+0x286>
-        //             _ = @atomicRmw(u64, &pSelf.benchmark_count, AtomicRmwOp.Add, 1, AtomicOrder.Release);
-        //   20d8a9:	48 8d 4b ff          	lea    rcx,[rbx-0x1]
-        //   20d8ad:	48 89 da             	mov    rdx,rbx
-        //   20d8b0:	48 89 d8             	mov    rax,rbx
-        //   20d8b3:	48 83 e2 07          	and    rdx,0x7
-        //   20d8b7:	74 1b                	je     20d8d4 <BmSelf.init.setup.tearDown.benchmark.AtomicRmwOp.Add+0x224>
-        //   20d8b9:	48 f7 da             	neg    rdx
-        //   20d8bc:	48 89 d8             	mov    rax,rbx
-        //   20d8bf:	90                   	nop
-        //   20d8c0:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-        //   20d8c7:	00 00 00 
-        //         while (iter > 0) : (iter -= 1) {
-        //   20d8ca:	48 83 c0 ff          	add    rax,0xffffffffffffffff
-        //   20d8ce:	48 83 c2 01          	add    rdx,0x1
-        //   20d8d2:	75 ec                	jne    20d8c0 <BmSelf.init.setup.tearDown.benchmark.AtomicRmwOp.Add+0x210>
-        //             _ = @atomicRmw(u64, &pSelf.benchmark_count, AtomicRmwOp.Add, 1, AtomicOrder.Release);
-        //   20d8d4:	48 83 f9 07          	cmp    rcx,0x7
-        //   20d8d8:	72 5c                	jb     20d936 <BmSelf.init.setup.tearDown.benchmark.AtomicRmwOp.Add+0x286>
-        //   20d8da:	66 0f 1f 44 00 00    	nop    WORD PTR [rax+rax*1+0x0]
-        //   20d8e0:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-        //   20d8e7:	00 00 00 
-        //   20d8ea:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-        //   20d8f1:	00 00 00 
-        //   20d8f4:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-        //   20d8fb:	00 00 00 
-        //   20d8fe:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-        //   20d905:	00 00 00 
-        //   20d908:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-        //   20d90f:	00 00 00 
-        //   20d912:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-        //   20d919:	00 00 00 
-        //   20d91c:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-        //   20d923:	00 00 00 
-        //   20d926:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-        //   20d92d:	00 00 00 
-        //         while (iter > 0) : (iter -= 1) {
-        //   20d930:	48 83 c0 f8          	add    rax,0xfffffffffffffff8
-        //   20d934:	75 aa                	jne    20d8e0 <BmSelf.init.setup.tearDown.benchmark.AtomicRmwOp.Add+0x230>
-        //         var ts: posix.timespec = undefined;
-        //   20d936:	c5 f9 7f 84 24 b0 00 	vmovdqa XMMWORD PTR [rsp+0xb0],xmm0
         fn benchmark(pSelf: *Self) void {
-            _ = @atomicRmw(u64, &pSelf.benchmark_count, AtomicRmwOp.Add, 1, AtomicOrder.Release);
+            pSelf.benchmark_count += 1;
         }
 
         fn tearDown(pSelf: *Self) void {
@@ -549,16 +538,16 @@ test "BmSelf.init.setup.tearDown.AtomicRmwOp.Add" {
         }
     };
 
-    bm.repetitions = 10;
+    bm.repetitions = 3;
     var bmSelf = try bm.run(BmSelf);
     assert(bmSelf.init_count == 1);
-    assert(bmSelf.setup_count == 10);
+    assert(bmSelf.setup_count == 3);
     assert(bmSelf.benchmark_count > 1000000);
-    assert(bmSelf.tearDown_count == 10);
+    assert(bmSelf.tearDown_count == 3);
 }
 
 /// The inner loop is optimized away.
-test "BmAdd" {
+test "BmPoor.add" {
     // Our benchmark
     const BmAdd = struct {
         const Self = this;
@@ -583,14 +572,6 @@ test "BmAdd" {
             pSelf.b = prng.random.scalar(u64);
         }
 
-        // The entire loop is optimized away and the time is 0.000 s.
-        //                 self.start_time = @intCast(u64, ts.tv_sec) * u64(ns_per_s) + @intCast(u64, ts.tv_nsec);
-        //   20e64c:	c5 f9 6f 54 24 30    	vmovdqa xmm2,XMMWORD PTR [rsp+0x30]
-        //         while (iter > 0) : (iter -= 1) {
-        //   20e652:	48 85 db             	test   rbx,rbx
-        //   20e655:	4d 0f 45 f4          	cmovne r14,r12
-        //         var ts: posix.timespec = undefined;
-        //   20e659:	c5 f8 29 4c 24 30    	vmovaps XMMWORD PTR [rsp+0x30],xmm1
         fn benchmark(pSelf: *Self) void {
             pSelf.r = (pSelf.a +% pSelf.b);
         }
@@ -610,152 +591,83 @@ test "BmAdd" {
     _ = try bm.run(BmAdd);
 }
 
-/// The inner loop is empty
-test "BmAdd.Acquire.Release" {
-    // Our benchmark
-    const BmAdd = struct {
-        const Self = this;
-
-        a: u64,
-        b: u64,
-        r: u64,
-
-        // Initialize Self
-        fn init() Self {
-            return Self {
-                .a = undefined, .b = undefined, .r = undefined,
-            };
-        }
-
-        // Optional setup prior to the first call to Self.benchmark, may return void or !void
-        fn setup(pSelf: *Self) !void {
-            var timer = try Timer.start();
-            const DefaultPrng = std.rand.DefaultPrng;
-            var prng = DefaultPrng.init(timer.read());
-            pSelf.a = prng.random.scalar(u64);
-            pSelf.b = prng.random.scalar(u64);
-        }
-
-        // Adding @fence Acquire and Release help we are just measure the loop costs:
-        //                 self.start_time = @intCast(u64, ts.tv_sec) * u64(ns_per_s) + @intCast(u64, ts.tv_nsec);
-        //   20f379:	c5 f9 6f 54 24 20    	vmovdqa xmm2,XMMWORD PTR [rsp+0x20]
-        //         while (iter > 0) : (iter -= 1) {
-        //   20f37f:	48 85 db             	test   rbx,rbx
-        //   20f382:	74 45                	je     20f3c9 <BmAdd.Acquire.Release+0x3a9>
-        //             @fence(AtomicOrder.Acquire);
-        //   20f384:	48 8d 4b ff          	lea    rcx,[rbx-0x1]
-        //   20f388:	48 89 da             	mov    rdx,rbx
-        //   20f38b:	48 89 d8             	mov    rax,rbx
-        //   20f38e:	48 83 e2 07          	and    rdx,0x7
-        //   20f392:	74 16                	je     20f3aa <BmAdd.Acquire.Release+0x38a>
-        //   20f394:	48 f7 da             	neg    rdx
-        //   20f397:	48 89 d8             	mov    rax,rbx
-        //   20f39a:	66 0f 1f 44 00 00    	nop    WORD PTR [rax+rax*1+0x0]
-        //         while (iter > 0) : (iter -= 1) {
-        //   20f3a0:	48 83 c0 ff          	add    rax,0xffffffffffffffff
-        //   20f3a4:	48 83 c2 01          	add    rdx,0x1
-        //   20f3a8:	75 f6                	jne    20f3a0 <BmAdd.Acquire.Release+0x380>
-        //   20f3aa:	4d 89 f4             	mov    r12,r14
-        //             @fence(AtomicOrder.Acquire);
-        //   20f3ad:	48 83 f9 07          	cmp    rcx,0x7
-        //   20f3b1:	72 16                	jb     20f3c9 <BmAdd.Acquire.Release+0x3a9>
-        //   20f3b3:	66 66 66 66 2e 0f 1f 	data16 data16 data16 nop WORD PTR cs:[rax+rax*1+0x0]
-        //   20f3ba:	84 00 00 00 00 00 
-        //         while (iter > 0) : (iter -= 1) {
-        //   20f3c0:	48 83 c0 f8          	add    rax,0xfffffffffffffff8
-        //   20f3c4:	75 fa                	jne    20f3c0 <BmAdd.Acquire.Release+0x3a0>
-        //   20f3c6:	4d 89 f4             	mov    r12,r14
-        //         var ts: posix.timespec = undefined;
-        //   20f3c9:	c5 f8 29 4c 24 20    	vmovaps XMMWORD PTR [rsp+0x20],xmm1
-        fn benchmark(pSelf: *Self) void {
-            @fence(AtomicOrder.Acquire);
-            pSelf.r = pSelf.a +% pSelf.b;
-            @fence(AtomicOrder.Release);
-        }
-
-        // Optional tearDown called after the last call to Self.benchmark, may return void or !void
-        fn tearDown(pSelf: *Self) !void {
-            if (pSelf.r != (u64(pSelf.a) +% u64(pSelf.b))) return error.Failed;
-        }
-    };
-
+// Measure @atomicRmw Add operation
+test "Bm.AtomicRmwOp.Add" {
     // Since this is a test print a \n before we run
     warn("\n");
 
-    // Create an instance of Benchmark, set 10 iterations and run
-    var bm = Benchmark.init("BmAdd", std.debug.global_allocator);
-    bm.repetitions = 10;
-    _ = try bm.run(BmAdd);
-}
-
-/// This measures lfence sfence in the loop
-test "BmAdd.lfence.sfence" {
-    // Our benchmark
-    const BmAdd = struct {
+    // Test fn benchmark(pSelf) can return an error
+    var bm = Benchmark.init("Bm.AtomicRmwOp.Add", std.debug.global_allocator);
+    const BmSelf = struct {
         const Self = this;
 
-        a: u64,
-        b: u64,
-        r: u64,
+        benchmark_count: u64,
 
-        // Initialize Self
         fn init() Self {
             return Self {
-                .a = undefined, .b = undefined, .r = undefined,
+                .benchmark_count = 0,
             };
         }
 
-        // Optional setup prior to the first call to Self.benchmark, may return void or !void
-        fn setup(pSelf: *Self) !void {
-            var timer = try Timer.start();
-            const DefaultPrng = std.rand.DefaultPrng;
-            var prng = DefaultPrng.init(timer.read());
-            pSelf.a = prng.random.scalar(u64);
-            pSelf.b = prng.random.scalar(u64);
-        }
-
-        // Add lfence/sfence doesn't help here we're just measuring lfence/sfence:
+        // This measures the cost of the atomic rmw add with loop unrolling:
         //                 self.start_time = @intCast(u64, ts.tv_sec) * u64(ns_per_s) + @intCast(u64, ts.tv_nsec);
-        //   2100e9:	c5 f9 6f 54 24 20    	vmovdqa xmm2,XMMWORD PTR [rsp+0x20]
+        //   210811:	c5 f9 6f 8c 24 90 00 	vmovdqa xmm1,XMMWORD PTR [rsp+0x90]
+        //   210818:	00 00 
         //         while (iter > 0) : (iter -= 1) {
-        //   2100ef:	48 85 db             	test   rbx,rbx
-        //   2100f2:	74 1b                	je     21010f <BmAdd.lfence.sfence+0x39f>
-        //   2100f4:	48 89 d8             	mov    rax,rbx
-        //   2100f7:	66 0f 1f 84 00 00 00 	nop    WORD PTR [rax+rax*1+0x0]
-        //   2100fe:	00 00 
-        //     asm volatile ("lfence": : :"memory");
-        //   210100:	0f ae e8             	lfence 
-        //     asm volatile ("sfence": : :"memory");
-        //   210103:	0f ae f8             	sfence 
+        //   21081a:	48 85 db             	test   rbx,rbx
+        //   21081d:	0f 84 93 00 00 00    	je     2108b6 <Bm.AtomicRmwOp.Add+0x266>
+        //             _ = @atomicRmw(u64, &pSelf.benchmark_count, AtomicRmwOp.Add, 1, AtomicOrder.Release);
+        //   210823:	48 8d 4b ff          	lea    rcx,[rbx-0x1]
+        //   210827:	48 89 da             	mov    rdx,rbx
+        //   21082a:	48 89 d8             	mov    rax,rbx
+        //   21082d:	48 83 e2 07          	and    rdx,0x7
+        //   210831:	74 21                	je     210854 <Bm.AtomicRmwOp.Add+0x204>
+        //   210833:	48 f7 da             	neg    rdx
+        //   210836:	48 89 d8             	mov    rax,rbx
+        //   210839:	0f 1f 80 00 00 00 00 	nop    DWORD PTR [rax+0x0]
+        //   210840:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+        //   210847:	00 00 00 
         //         while (iter > 0) : (iter -= 1) {
-        //   210106:	48 83 c0 ff          	add    rax,0xffffffffffffffff
-        //   21010a:	75 f4                	jne    210100 <BmAdd.lfence.sfence+0x390>
-        //   21010c:	4d 89 f4             	mov    r12,r14
+        //   21084a:	48 83 c0 ff          	add    rax,0xffffffffffffffff
+        //   21084e:	48 83 c2 01          	add    rdx,0x1
+        //   210852:	75 ec                	jne    210840 <Bm.AtomicRmwOp.Add+0x1f0>
+        //             _ = @atomicRmw(u64, &pSelf.benchmark_count, AtomicRmwOp.Add, 1, AtomicOrder.Release);
+        //   210854:	48 83 f9 07          	cmp    rcx,0x7
+        //   210858:	72 5c                	jb     2108b6 <Bm.AtomicRmwOp.Add+0x266>
+        //   21085a:	66 0f 1f 44 00 00    	nop    WORD PTR [rax+rax*1+0x0]
+        //   210860:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+        //   210867:	00 00 00 
+        //   21086a:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+        //   210871:	00 00 00 
+        //   210874:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+        //   21087b:	00 00 00 
+        //   21087e:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+        //   210885:	00 00 00 
+        //   210888:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+        //   21088f:	00 00 00 
+        //   210892:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+        //   210899:	00 00 00 
+        //   21089c:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+        //   2108a3:	00 00 00 
+        //   2108a6:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+        //   2108ad:	00 00 00 
+        //         while (iter > 0) : (iter -= 1) {
+        //   2108b0:	48 83 c0 f8          	add    rax,0xfffffffffffffff8
+        //   2108b4:	75 aa                	jne    210860 <Bm.AtomicRmwOp.Add+0x210>
         //         var ts: posix.timespec = undefined;
-        //   21010f:	c5 f8 29 4c 24 20    	vmovaps XMMWORD PTR [rsp+0x20],xmm1
+        //   2108b6:	c5 f9 7f 84 24 90 00 	vmovdqa XMMWORD PTR [rsp+0x90],xmm0
+        //   2108bd:	00 00 
         fn benchmark(pSelf: *Self) void {
-            lfence();
-            pSelf.r = pSelf.a +% pSelf.b;
-            sfence();
-        }
-
-        // Optional tearDown called after the last call to Self.benchmark, may return void or !void
-        fn tearDown(pSelf: *Self) !void {
-            if (pSelf.r != (u64(pSelf.a) +% u64(pSelf.b))) return error.Failed;
+            _ = @atomicRmw(u64, &pSelf.benchmark_count, AtomicRmwOp.Add, 1, AtomicOrder.Release);
         }
     };
 
-    // Since this is a test print a \n before we run
-    warn("\n");
-
-    // Create an instance of Benchmark, set 10 iterations and run
-    var bm = Benchmark.init("BmAdd", std.debug.global_allocator);
     bm.repetitions = 10;
-    _ = try bm.run(BmAdd);
+    var bmSelf = try bm.run(BmSelf);
 }
 
 /// Use volatile to actually measure r = a +% b
-test "BmAdd.volatile" {
+test "Bm.volatile.add" {
     // Our benchmark
     const BmAdd = struct {
         const Self = this;
@@ -780,63 +692,63 @@ test "BmAdd.volatile" {
             pSelf.b = prng.random.scalar(u64);
         }
 
-        // Using volatile we are actually measure the cost of loading adding and storing:
+        // Using volatile we actually measure the cost of loading, adding and storing:
         //                 self.start_time = @intCast(u64, ts.tv_sec) * u64(ns_per_s) + @intCast(u64, ts.tv_nsec);
-        //   210e49:	c5 f9 6f 54 24 30    	vmovdqa xmm2,XMMWORD PTR [rsp+0x30]
+        //   211559:	c5 f9 6f 54 24 30    	vmovdqa xmm2,XMMWORD PTR [rsp+0x30]
         //         while (iter > 0) : (iter -= 1) {
-        //   210e4f:	48 85 db             	test   rbx,rbx
-        //   210e52:	0f 84 b6 00 00 00    	je     210f0e <BmAdd.volatile+0x42e>
-        //             pR.* = (pA.* + pB.*);
-        //   210e58:	48 8d 4b ff          	lea    rcx,[rbx-0x1]
-        //   210e5c:	48 89 da             	mov    rdx,rbx
-        //   210e5f:	48 89 d8             	mov    rax,rbx
-        //   210e62:	48 83 e2 07          	and    rdx,0x7
-        //   210e66:	74 21                	je     210e89 <BmAdd.volatile+0x3a9>
-        //   210e68:	48 f7 da             	neg    rdx
-        //   210e6b:	48 89 d8             	mov    rax,rbx
-        //   210e6e:	66 90                	xchg   ax,ax
-        //   210e70:	48 8b 74 24 10       	mov    rsi,QWORD PTR [rsp+0x10]
-        //   210e75:	48 03 74 24 08       	add    rsi,QWORD PTR [rsp+0x8]
-        //   210e7a:	48 89 74 24 18       	mov    QWORD PTR [rsp+0x18],rsi
+        //   21155f:	48 85 db             	test   rbx,rbx
+        //   211562:	0f 84 b6 00 00 00    	je     21161e <Bm.volatile.add+0x42e>
+        //             pR.* = (pA.* +% pB.*);
+        //   211568:	48 8d 4b ff          	lea    rcx,[rbx-0x1]
+        //   21156c:	48 89 da             	mov    rdx,rbx
+        //   21156f:	48 89 d8             	mov    rax,rbx
+        //   211572:	48 83 e2 07          	and    rdx,0x7
+        //   211576:	74 21                	je     211599 <Bm.volatile.add+0x3a9>
+        //   211578:	48 f7 da             	neg    rdx
+        //   21157b:	48 89 d8             	mov    rax,rbx
+        //   21157e:	66 90                	xchg   ax,ax
+        //   211580:	48 8b 74 24 10       	mov    rsi,QWORD PTR [rsp+0x10]
+        //   211585:	48 03 74 24 08       	add    rsi,QWORD PTR [rsp+0x8]
+        //   21158a:	48 89 74 24 18       	mov    QWORD PTR [rsp+0x18],rsi
         //         while (iter > 0) : (iter -= 1) {
-        //   210e7f:	48 83 c0 ff          	add    rax,0xffffffffffffffff
-        //   210e83:	48 83 c2 01          	add    rdx,0x1
-        //   210e87:	75 e7                	jne    210e70 <BmAdd.volatile+0x390>
-        //             pR.* = (pA.* + pB.*);
-        //   210e89:	48 83 f9 07          	cmp    rcx,0x7
-        //   210e8d:	72 7f                	jb     210f0e <BmAdd.volatile+0x42e>
-        //   210e8f:	90                   	nop
-        //   210e90:	48 8b 4c 24 10       	mov    rcx,QWORD PTR [rsp+0x10]
-        //   210e95:	48 03 4c 24 08       	add    rcx,QWORD PTR [rsp+0x8]
-        //   210e9a:	48 89 4c 24 18       	mov    QWORD PTR [rsp+0x18],rcx
-        //   210e9f:	48 8b 4c 24 10       	mov    rcx,QWORD PTR [rsp+0x10]
-        //   210ea4:	48 03 4c 24 08       	add    rcx,QWORD PTR [rsp+0x8]
-        //   210ea9:	48 89 4c 24 18       	mov    QWORD PTR [rsp+0x18],rcx
-        //   210eae:	48 8b 4c 24 10       	mov    rcx,QWORD PTR [rsp+0x10]
-        //   210eb3:	48 03 4c 24 08       	add    rcx,QWORD PTR [rsp+0x8]
-        //   210eb8:	48 89 4c 24 18       	mov    QWORD PTR [rsp+0x18],rcx
-        //   210ebd:	48 8b 4c 24 10       	mov    rcx,QWORD PTR [rsp+0x10]
-        //   210ec2:	48 03 4c 24 08       	add    rcx,QWORD PTR [rsp+0x8]
-        //   210ec7:	48 89 4c 24 18       	mov    QWORD PTR [rsp+0x18],rcx
-        //   210ecc:	48 8b 4c 24 10       	mov    rcx,QWORD PTR [rsp+0x10]
-        //   210ed1:	48 03 4c 24 08       	add    rcx,QWORD PTR [rsp+0x8]
-        //   210ed6:	48 89 4c 24 18       	mov    QWORD PTR [rsp+0x18],rcx
-        //   210edb:	48 8b 4c 24 10       	mov    rcx,QWORD PTR [rsp+0x10]
-        //   210ee0:	48 03 4c 24 08       	add    rcx,QWORD PTR [rsp+0x8]
-        //   210ee5:	48 89 4c 24 18       	mov    QWORD PTR [rsp+0x18],rcx
-        //   210eea:	48 8b 4c 24 10       	mov    rcx,QWORD PTR [rsp+0x10]
-        //   210eef:	48 03 4c 24 08       	add    rcx,QWORD PTR [rsp+0x8]
-        //   210ef4:	48 89 4c 24 18       	mov    QWORD PTR [rsp+0x18],rcx
-        //   210ef9:	48 8b 4c 24 10       	mov    rcx,QWORD PTR [rsp+0x10]
-        //   210efe:	48 03 4c 24 08       	add    rcx,QWORD PTR [rsp+0x8]
+        //   21158f:	48 83 c0 ff          	add    rax,0xffffffffffffffff
+        //   211593:	48 83 c2 01          	add    rdx,0x1
+        //   211597:	75 e7                	jne    211580 <Bm.volatile.add+0x390>
+        //             pR.* = (pA.* +% pB.*);
+        //   211599:	48 83 f9 07          	cmp    rcx,0x7
+        //   21159d:	72 7f                	jb     21161e <Bm.volatile.add+0x42e>
+        //   21159f:	90                   	nop
+        //   2115a0:	48 8b 4c 24 10       	mov    rcx,QWORD PTR [rsp+0x10]
+        //   2115a5:	48 03 4c 24 08       	add    rcx,QWORD PTR [rsp+0x8]
+        //   2115aa:	48 89 4c 24 18       	mov    QWORD PTR [rsp+0x18],rcx
+        //   2115af:	48 8b 4c 24 10       	mov    rcx,QWORD PTR [rsp+0x10]
+        //   2115b4:	48 03 4c 24 08       	add    rcx,QWORD PTR [rsp+0x8]
+        //   2115b9:	48 89 4c 24 18       	mov    QWORD PTR [rsp+0x18],rcx
+        //   2115be:	48 8b 4c 24 10       	mov    rcx,QWORD PTR [rsp+0x10]
+        //   2115c3:	48 03 4c 24 08       	add    rcx,QWORD PTR [rsp+0x8]
+        //   2115c8:	48 89 4c 24 18       	mov    QWORD PTR [rsp+0x18],rcx
+        //   2115cd:	48 8b 4c 24 10       	mov    rcx,QWORD PTR [rsp+0x10]
+        //   2115d2:	48 03 4c 24 08       	add    rcx,QWORD PTR [rsp+0x8]
+        //   2115d7:	48 89 4c 24 18       	mov    QWORD PTR [rsp+0x18],rcx
+        //   2115dc:	48 8b 4c 24 10       	mov    rcx,QWORD PTR [rsp+0x10]
+        //   2115e1:	48 03 4c 24 08       	add    rcx,QWORD PTR [rsp+0x8]
+        //   2115e6:	48 89 4c 24 18       	mov    QWORD PTR [rsp+0x18],rcx
+        //   2115eb:	48 8b 4c 24 10       	mov    rcx,QWORD PTR [rsp+0x10]
+        //   2115f0:	48 03 4c 24 08       	add    rcx,QWORD PTR [rsp+0x8]
+        //   2115f5:	48 89 4c 24 18       	mov    QWORD PTR [rsp+0x18],rcx
+        //   2115fa:	48 8b 4c 24 10       	mov    rcx,QWORD PTR [rsp+0x10]
+        //   2115ff:	48 03 4c 24 08       	add    rcx,QWORD PTR [rsp+0x8]
+        //   211604:	48 89 4c 24 18       	mov    QWORD PTR [rsp+0x18],rcx
+        //   211609:	48 8b 4c 24 10       	mov    rcx,QWORD PTR [rsp+0x10]
+        //   21160e:	48 03 4c 24 08       	add    rcx,QWORD PTR [rsp+0x8]
         //         while (iter > 0) : (iter -= 1) {
-        //   210f03:	48 83 c0 f8          	add    rax,0xfffffffffffffff8
-        //             pR.* = (pA.* + pB.*);
-        //   210f07:	48 89 4c 24 18       	mov    QWORD PTR [rsp+0x18],rcx
+        //   211613:	48 83 c0 f8          	add    rax,0xfffffffffffffff8
+        //             pR.* = (pA.* +% pB.*);
+        //   211617:	48 89 4c 24 18       	mov    QWORD PTR [rsp+0x18],rcx
         //         while (iter > 0) : (iter -= 1) {
-        //   210f0c:	75 82                	jne    210e90 <BmAdd.volatile+0x3b0>
+        //   21161c:	75 82                	jne    2115a0 <Bm.volatile.add+0x3b0>
         //         var ts: posix.timespec = undefined;
-        //   210f0e:	c5 f8 29 4c 24 30    	vmovaps XMMWORD PTR [rsp+0x30],xmm1
+        //   21161e:	c5 f8 29 4c 24 30    	vmovaps XMMWORD PTR [rsp+0x30],xmm1
         fn benchmark(pSelf: *Self) void {
             var pA: *volatile u64 = &pSelf.a;
             var pB: *volatile u64 = &pSelf.b;
@@ -854,12 +766,12 @@ test "BmAdd.volatile" {
     warn("\n");
 
     // Create an instance of Benchmark, set 10 iterations and run
-    var bm = Benchmark.init("BmAdd", std.debug.global_allocator);
+    var bm = Benchmark.init("Bm.Add", std.debug.global_allocator);
     bm.repetitions = 10;
     _ = try bm.run(BmAdd);
 }
 
-test "BmNoSelf.error" {
+test "BmError.benchmark" {
     // Since this is a test print a \n before we run
     warn("\n");
 
@@ -872,12 +784,28 @@ test "BmNoSelf.error" {
     }), error.TestError);
 }
 
-test "BmSelf.init_error.setup.tearDown" {
+test "BmError.benchmark.pSelf" {
     // Since this is a test print a \n before we run
     warn("\n");
 
     // Test fn benchmark(pSelf) can return an error
-    var bm = Benchmark.init("BmEmpty.error", std.debug.global_allocator);
+    var bm = Benchmark.init("BmError.benchmark.pSelf", std.debug.global_allocator);
+    assertError(bm.run(struct {
+        const Self = this;
+
+        // Called on every iteration of the benchmark, may return void or !void
+        fn benchmark(pSelf: *Self) !void {
+            return error.BenchmarkError;
+        }
+    }), error.BenchmarkError);
+}
+
+test "BmError.init_error.setup.tearDown" {
+    // Since this is a test print a \n before we run
+    warn("\n");
+
+    // Test fn benchmark(pSelf) can return an error
+    var bm = Benchmark.init("BmError.init_error.setup.tearDown", std.debug.global_allocator);
     const BmSelf = struct {
         const Self = this;
 
@@ -907,12 +835,12 @@ test "BmSelf.init_error.setup.tearDown" {
     assertError(bm.run(BmSelf), error.InitError);
 }
 
-test "BmSelf.init.setup_error.tearDown" {
+test "BmError.init.setup_error.tearDown" {
     // Since this is a test print a \n before we run
     warn("\n");
 
     // Test fn benchmark(pSelf) can return an error
-    var bm = Benchmark.init("BmEmpty.error", std.debug.global_allocator);
+    var bm = Benchmark.init("BmError.init.setup_error.tearDown", std.debug.global_allocator);
     const BmSelf = struct {
         const Self = this;
 
@@ -948,12 +876,12 @@ test "BmSelf.init.setup_error.tearDown" {
     assertError(bm.run(BmSelf), error.SetupError);
 }
 
-test "BmSelf.init.setup.tearDown_error" {
+test "BmError.init.setup.tearDown_error" {
     // Since this is a test print a \n before we run
     warn("\n");
 
     // Test fn benchmark(pSelf) can return an error
-    var bm = Benchmark.init("BmEmpty.error", std.debug.global_allocator);
+    var bm = Benchmark.init("BmError.init.setup.tearDown_error", std.debug.global_allocator);
     const BmSelf = struct {
         const Self = this;
 
@@ -988,12 +916,12 @@ test "BmSelf.init.setup.tearDown_error" {
     assertError(bm.run(BmSelf), error.TearDownError);
 }
 
-test "BmSelf.init.setup.tearDown.benchmark_error" {
+test "BmError.init.setup.tearDown.benchmark_error" {
     // Since this is a test print a \n before we run
     warn("\n");
 
     // Test fn benchmark(pSelf) can return an error
-    var bm = Benchmark.init("BmEmpty.error", std.debug.global_allocator);
+    var bm = Benchmark.init("BmError.init.setup.tearDown.benchmark_error", std.debug.global_allocator);
     const BmSelf = struct {
         const Self = this;
 
@@ -1028,18 +956,3 @@ test "BmSelf.init.setup.tearDown.benchmark_error" {
     assertError(bm.run(BmSelf), error.BenchmarkError);
 }
 
-test "BmSelf.no_init.no_setup.no_tearDown.benchmark_error" {
-    // Since this is a test print a \n before we run
-    warn("\n");
-
-    // Test fn benchmark(pSelf) can return an error
-    var bm = Benchmark.init("BmEmpty.error", std.debug.global_allocator);
-    assertError(bm.run(struct {
-        const Self = this;
-
-        // Called on every iteration of the benchmark, may return void or !void
-        fn benchmark(pSelf: *Self) !void {
-            return error.BenchmarkError;
-        }
-    }), error.BenchmarkError);
-}

@@ -37,148 +37,138 @@ A benchmark is a struct with fn's init, setup, benchmark and tearDown.
 
 ```
 // Measure @atomicRmw Add operation
-test "BmSelf.init.setup.tearDown.benchmark.AtomicRmwOp.Add" {
+test "Bm.AtomicRmwOp.Add" {
     // Since this is a test print a \n before we run
     warn("\n");
 
     // Test fn benchmark(pSelf) can return an error
-    var bm = Benchmark.init("BmEmpty.error", std.debug.global_allocator);
+    var bm = Benchmark.init("Bm.AtomicRmwOp.Add", std.debug.global_allocator);
     const BmSelf = struct {
         const Self = this;
 
-        init_count: u64,
-        setup_count: u64,
         benchmark_count: u64,
-        tearDown_count: u64,
 
         fn init() Self {
             return Self {
-                .init_count = 1,
-                .setup_count = 0,
                 .benchmark_count = 0,
-                .tearDown_count = 0,
             };
         }
 
-        fn setup(pSelf: *Self) void {
-            pSelf.setup_count += 1;
-        }
-
-        // This measures the cost of the atomic rmw add:
+        // This measures the cost of the atomic rmw add with loop unrolling:
         //                 self.start_time = @intCast(u64, ts.tv_sec) * u64(ns_per_s) + @intCast(u64, ts.tv_nsec);
-        //   20d897:	c5 f9 6f 8c 24 b0 00 	vmovdqa xmm1,XMMWORD PTR [rsp+0xb0]
-        //   20d89e:	00 00 
+        //   210811:	c5 f9 6f 8c 24 90 00 	vmovdqa xmm1,XMMWORD PTR [rsp+0x90]
+        //   210818:	00 00 
         //         while (iter > 0) : (iter -= 1) {
-        //   20d8a0:	48 85 db             	test   rbx,rbx
-        //   20d8a3:	0f 84 8d 00 00 00    	je     20d936 <BmSelf.init.setup.tearDown.benchmark.AtomicRmwOp.Add+0x286>
+        //   21081a:	48 85 db             	test   rbx,rbx
+        //   21081d:	0f 84 93 00 00 00    	je     2108b6 <Bm.AtomicRmwOp.Add+0x266>
         //             _ = @atomicRmw(u64, &pSelf.benchmark_count, AtomicRmwOp.Add, 1, AtomicOrder.Release);
-        //   20d8a9:	48 8d 4b ff          	lea    rcx,[rbx-0x1]
-        //   20d8ad:	48 89 da             	mov    rdx,rbx
-        //   20d8b0:	48 89 d8             	mov    rax,rbx
-        //   20d8b3:	48 83 e2 07          	and    rdx,0x7
-        //   20d8b7:	74 1b                	je     20d8d4 <BmSelf.init.setup.tearDown.benchmark.AtomicRmwOp.Add+0x224>
-        //   20d8b9:	48 f7 da             	neg    rdx
-        //   20d8bc:	48 89 d8             	mov    rax,rbx
-        //   20d8bf:	90                   	nop
-        //   20d8c0:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-        //   20d8c7:	00 00 00 
+        //   210823:	48 8d 4b ff          	lea    rcx,[rbx-0x1]
+        //   210827:	48 89 da             	mov    rdx,rbx
+        //   21082a:	48 89 d8             	mov    rax,rbx
+        //   21082d:	48 83 e2 07          	and    rdx,0x7
+        //   210831:	74 21                	je     210854 <Bm.AtomicRmwOp.Add+0x204>
+        //   210833:	48 f7 da             	neg    rdx
+        //   210836:	48 89 d8             	mov    rax,rbx
+        //   210839:	0f 1f 80 00 00 00 00 	nop    DWORD PTR [rax+0x0]
+        //   210840:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+        //   210847:	00 00 00 
         //         while (iter > 0) : (iter -= 1) {
-        //   20d8ca:	48 83 c0 ff          	add    rax,0xffffffffffffffff
-        //   20d8ce:	48 83 c2 01          	add    rdx,0x1
-        //   20d8d2:	75 ec                	jne    20d8c0 <BmSelf.init.setup.tearDown.benchmark.AtomicRmwOp.Add+0x210>
+        //   21084a:	48 83 c0 ff          	add    rax,0xffffffffffffffff
+        //   21084e:	48 83 c2 01          	add    rdx,0x1
+        //   210852:	75 ec                	jne    210840 <Bm.AtomicRmwOp.Add+0x1f0>
         //             _ = @atomicRmw(u64, &pSelf.benchmark_count, AtomicRmwOp.Add, 1, AtomicOrder.Release);
-        //   20d8d4:	48 83 f9 07          	cmp    rcx,0x7
-        //   20d8d8:	72 5c                	jb     20d936 <BmSelf.init.setup.tearDown.benchmark.AtomicRmwOp.Add+0x286>
-        //   20d8da:	66 0f 1f 44 00 00    	nop    WORD PTR [rax+rax*1+0x0]
-        //   20d8e0:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-        //   20d8e7:	00 00 00 
-        //   20d8ea:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-        //   20d8f1:	00 00 00 
-        //   20d8f4:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-        //   20d8fb:	00 00 00 
-        //   20d8fe:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-        //   20d905:	00 00 00 
-        //   20d908:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-        //   20d90f:	00 00 00 
-        //   20d912:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-        //   20d919:	00 00 00 
-        //   20d91c:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-        //   20d923:	00 00 00 
-        //   20d926:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-        //   20d92d:	00 00 00 
+        //   210854:	48 83 f9 07          	cmp    rcx,0x7
+        //   210858:	72 5c                	jb     2108b6 <Bm.AtomicRmwOp.Add+0x266>
+        //   21085a:	66 0f 1f 44 00 00    	nop    WORD PTR [rax+rax*1+0x0]
+        //   210860:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+        //   210867:	00 00 00 
+        //   21086a:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+        //   210871:	00 00 00 
+        //   210874:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+        //   21087b:	00 00 00 
+        //   21087e:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+        //   210885:	00 00 00 
+        //   210888:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+        //   21088f:	00 00 00 
+        //   210892:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+        //   210899:	00 00 00 
+        //   21089c:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+        //   2108a3:	00 00 00 
+        //   2108a6:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+        //   2108ad:	00 00 00 
         //         while (iter > 0) : (iter -= 1) {
-        //   20d930:	48 83 c0 f8          	add    rax,0xfffffffffffffff8
-        //   20d934:	75 aa                	jne    20d8e0 <BmSelf.init.setup.tearDown.benchmark.AtomicRmwOp.Add+0x230>
+        //   2108b0:	48 83 c0 f8          	add    rax,0xfffffffffffffff8
+        //   2108b4:	75 aa                	jne    210860 <Bm.AtomicRmwOp.Add+0x210>
         //         var ts: posix.timespec = undefined;
-        //   20d936:	c5 f9 7f 84 24 b0 00 	vmovdqa XMMWORD PTR [rsp+0xb0],xmm0
+        //   2108b6:	c5 f9 7f 84 24 90 00 	vmovdqa XMMWORD PTR [rsp+0x90],xmm0
+        //   2108bd:	00 00 
         fn benchmark(pSelf: *Self) void {
             _ = @atomicRmw(u64, &pSelf.benchmark_count, AtomicRmwOp.Add, 1, AtomicOrder.Release);
-        }
-
-        fn tearDown(pSelf: *Self) void {
-            pSelf.tearDown_count += 1;
         }
     };
 
     bm.repetitions = 10;
     var bmSelf = try bm.run(BmSelf);
-    assert(bmSelf.init_count == 1);
-    assert(bmSelf.setup_count == 10);
-    assert(bmSelf.benchmark_count > 1000000);
-    assert(bmSelf.tearDown_count == 10);
 }
 ```
 
 ## Test on my desktop debug
 ```bash
-$ time zig test --release-fast benchmark.zig
-Test 1/15 BmNoSelf.lfence...
+$ zig test --release-fast benchmark.zig 
+Test 1/16 BmSimple.cfence...
 name repetitions:1        iterations        time    time/operation
-BmNoSelf                   196000000     0.562 s       2.867 ns/op
-BmNoSelf                   196000000     0.562 s       2.867 ns/op mean
-BmNoSelf                   196000000     0.562 s       2.867 ns/op median
-BmNoSelf                   196000000     0.000 s       0.000 ns/op stddev
+BmSimple.cfence           1960000000     0.554 s       0.283 ns/op
+BmSimple.cfence           1960000000     0.554 s       0.283 ns/op mean
+BmSimple.cfence           1960000000     0.554 s       0.283 ns/op median
+BmSimple.cfence           1960000000     0.000 s       0.000 ns/op stddev
 OK
-Test 2/15 BmSelf.sfence...
+Test 2/16 BmSimple.lfence...
 name repetitions:1        iterations        time    time/operation
-BmSelf                     384160000     0.645 s       1.679 ns/op
-BmSelf                     384160000     0.645 s       1.679 ns/op mean
-BmSelf                     384160000     0.645 s       1.679 ns/op median
-BmSelf                     384160000     0.000 s       0.000 ns/op stddev
+BmSimple.lfence            196000000     0.563 s       2.874 ns/op
+BmSimple.lfence            196000000     0.563 s       2.874 ns/op mean
+BmSimple.lfence            196000000     0.563 s       2.874 ns/op median
+BmSimple.lfence            196000000     0.000 s       0.000 ns/op stddev
 OK
-Test 3/15 BmSelf.mfence.init...
+Test 3/16 BmSimple.sfence...
 name repetitions:1        iterations        time    time/operation
-BmEmpty.error               53782400     0.527 s       9.801 ns/op
-BmEmpty.error               53782400     0.527 s       9.801 ns/op mean
-BmEmpty.error               53782400     0.527 s       9.801 ns/op median
-BmEmpty.error               53782400     0.000 s       0.000 ns/op stddev
+BmSimple.sfence            384160000     0.645 s       1.680 ns/op
+BmSimple.sfence            384160000     0.645 s       1.680 ns/op mean
+BmSimple.sfence            384160000     0.645 s       1.680 ns/op median
+BmSimple.sfence            384160000     0.000 s       0.000 ns/op stddev
 OK
-Test 4/15 BmSelf.init.setup...
+Test 4/16 BmSimple.mfence...
+name repetitions:1        iterations        time    time/operation
+BmSimple.mfence             53782400     0.532 s       9.885 ns/op
+BmSimple.mfence             53782400     0.532 s       9.885 ns/op mean
+BmSimple.mfence             53782400     0.532 s       9.885 ns/op median
+BmSimple.mfence             53782400     0.000 s       0.000 ns/op stddev
+OK
+Test 5/16 BmPoor.init...
+name repetitions:1        iterations        time    time/operation
+BmPoor.init             100000000000     0.000 s       0.000 ns/op
+BmPoor.init             100000000000     0.000 s       0.000 ns/op mean
+BmPoor.init             100000000000     0.000 s       0.000 ns/op median
+BmPoor.init             100000000000     0.000 s       0.000 ns/op stddev
+OK
+Test 6/16 BmPoor.init.setup...
 name repetitions:3        iterations        time    time/operation
-BmEmpty.error           100000000000     0.000 s       0.000 ns/op
-BmEmpty.error           100000000000     0.000 s       0.000 ns/op
-BmEmpty.error           100000000000     0.000 s       0.000 ns/op
-BmEmpty.error           100000000000     0.000 s       0.000 ns/op mean
-BmEmpty.error           100000000000     0.000 s       0.000 ns/op median
-BmEmpty.error           100000000000     0.000 s       0.000 ns/op stddev
+BmPoor.init.setup       100000000000     0.000 s       0.000 ns/op
+BmPoor.init.setup       100000000000     0.000 s       0.000 ns/op
+BmPoor.init.setup       100000000000     0.000 s       0.000 ns/op
+BmPoor.init.setup       100000000000     0.000 s       0.000 ns/op mean
+BmPoor.init.setup       100000000000     0.000 s       0.000 ns/op median
+BmPoor.init.setup       100000000000     0.000 s       0.000 ns/op stddev
 OK
-Test 5/15 BmSelf.init.setup.tearDown.AtomicRmwOp.Add...
-name repetitions:10       iterations        time    time/operation
-BmEmpty.error              105413504     0.560 s       5.316 ns/op
-BmEmpty.error              105413504     0.561 s       5.326 ns/op
-BmEmpty.error              105413504     0.560 s       5.316 ns/op
-BmEmpty.error              105413504     0.562 s       5.328 ns/op
-BmEmpty.error              105413504     0.562 s       5.332 ns/op
-BmEmpty.error              105413504     0.561 s       5.325 ns/op
-BmEmpty.error              105413504     0.563 s       5.338 ns/op
-BmEmpty.error              105413504     0.561 s       5.323 ns/op
-BmEmpty.error              105413504     0.563 s       5.341 ns/op
-BmEmpty.error              105413504     0.561 s       5.320 ns/op
-BmEmpty.error              105413504     0.561 s       5.326 ns/op mean
-BmEmpty.error              105413504     0.561 s       5.325 ns/op median
-BmEmpty.error              105413504     0.001 s       0.009 ns/op stddev
+Test 7/16 BmPoor.init.setup.tearDown...
+name repetitions:3        iterations        time    time/operation
+BmPoor.init.setup.tearDown  100000000000     0.000 s       0.000 ns/op
+BmPoor.init.setup.tearDown  100000000000     0.000 s       0.000 ns/op
+BmPoor.init.setup.tearDown  100000000000     0.000 s       0.000 ns/op
+BmPoor.init.setup.tearDown  100000000000     0.000 s       0.000 ns/op mean
+BmPoor.init.setup.tearDown  100000000000     0.000 s       0.000 ns/op median
+BmPoor.init.setup.tearDown  100000000000     0.000 s       0.000 ns/op stddev
 OK
-Test 6/15 BmAdd...
+Test 8/16 BmPoor.add...
 name repetitions:10       iterations        time    time/operation
 BmAdd                   100000000000     0.000 s       0.000 ns/op
 BmAdd                   100000000000     0.000 s       0.000 ns/op
@@ -194,71 +184,51 @@ BmAdd                   100000000000     0.000 s       0.000 ns/op mean
 BmAdd                   100000000000     0.000 s       0.000 ns/op median
 BmAdd                   100000000000     0.000 s       0.000 ns/op stddev
 OK
-Test 7/15 BmAdd.Acquire.Release...
+Test 9/16 Bm.AtomicRmwOp.Add...
 name repetitions:10       iterations        time    time/operation
-BmAdd                    14000000000     0.505 s       0.036 ns/op
-BmAdd                    14000000000     0.551 s       0.039 ns/op
-BmAdd                    14000000000     0.557 s       0.040 ns/op
-BmAdd                    14000000000     0.527 s       0.038 ns/op
-BmAdd                    14000000000     0.517 s       0.037 ns/op
-BmAdd                    14000000000     0.512 s       0.037 ns/op
-BmAdd                    14000000000     0.527 s       0.038 ns/op
-BmAdd                    14000000000     0.510 s       0.036 ns/op
-BmAdd                    14000000000     0.563 s       0.040 ns/op
-BmAdd                    14000000000     0.523 s       0.037 ns/op
-BmAdd                    14000000000     0.529 s       0.038 ns/op mean
-BmAdd                    14000000000     0.525 s       0.037 ns/op median
-BmAdd                    14000000000     0.021 s       0.001 ns/op stddev
+Bm.AtomicRmwOp.Add         105413504     0.560 s       5.311 ns/op
+Bm.AtomicRmwOp.Add         105413504     0.562 s       5.336 ns/op
+Bm.AtomicRmwOp.Add         105413504     0.561 s       5.325 ns/op
+Bm.AtomicRmwOp.Add         105413504     0.562 s       5.333 ns/op
+Bm.AtomicRmwOp.Add         105413504     0.561 s       5.324 ns/op
+Bm.AtomicRmwOp.Add         105413504     0.563 s       5.338 ns/op
+Bm.AtomicRmwOp.Add         105413504     0.562 s       5.332 ns/op
+Bm.AtomicRmwOp.Add         105413504     0.561 s       5.321 ns/op
+Bm.AtomicRmwOp.Add         105413504     0.562 s       5.332 ns/op
+Bm.AtomicRmwOp.Add         105413504     0.562 s       5.328 ns/op
+Bm.AtomicRmwOp.Add         105413504     0.562 s       5.328 ns/op mean
+Bm.AtomicRmwOp.Add         105413504     0.562 s       5.330 ns/op median
+Bm.AtomicRmwOp.Add         105413504     0.001 s       0.008 ns/op stddev
 OK
-Test 8/15 BmAdd.lfence.sfence...
+Test 10/16 Bm.volatile.add...
 name repetitions:10       iterations        time    time/operation
-BmAdd                      140000000     0.608 s       4.346 ns/op
-BmAdd                      140000000     0.609 s       4.347 ns/op
-BmAdd                      140000000     0.608 s       4.343 ns/op
-BmAdd                      140000000     0.608 s       4.343 ns/op
-BmAdd                      140000000     0.607 s       4.338 ns/op
-BmAdd                      140000000     0.607 s       4.336 ns/op
-BmAdd                      140000000     0.609 s       4.348 ns/op
-BmAdd                      140000000     0.607 s       4.339 ns/op
-BmAdd                      140000000     0.608 s       4.344 ns/op
-BmAdd                      140000000     0.609 s       4.348 ns/op
-BmAdd                      140000000     0.608 s       4.343 ns/op mean
-BmAdd                      140000000     0.608 s       4.344 ns/op median
-BmAdd                      140000000     0.001 s       0.004 ns/op stddev
+Bm.Add                    1960000000     0.556 s       0.284 ns/op
+Bm.Add                    1960000000     0.559 s       0.285 ns/op
+Bm.Add                    1960000000     0.564 s       0.288 ns/op
+Bm.Add                    1960000000     0.559 s       0.285 ns/op
+Bm.Add                    1960000000     0.560 s       0.286 ns/op
+Bm.Add                    1960000000     0.558 s       0.285 ns/op
+Bm.Add                    1960000000     0.560 s       0.286 ns/op
+Bm.Add                    1960000000     0.559 s       0.285 ns/op
+Bm.Add                    1960000000     0.560 s       0.286 ns/op
+Bm.Add                    1960000000     0.560 s       0.286 ns/op
+Bm.Add                    1960000000     0.560 s       0.286 ns/op mean
+Bm.Add                    1960000000     0.560 s       0.286 ns/op median
+Bm.Add                    1960000000     0.002 s       0.001 ns/op stddev
 OK
-Test 9/15 BmAdd.volatile...
-name repetitions:10       iterations        time    time/operation
-BmAdd                     1960000000     0.558 s       0.284 ns/op
-BmAdd                     1960000000     0.557 s       0.284 ns/op
-BmAdd                     1960000000     0.556 s       0.284 ns/op
-BmAdd                     1960000000     0.558 s       0.285 ns/op
-BmAdd                     1960000000     0.556 s       0.283 ns/op
-BmAdd                     1960000000     0.557 s       0.284 ns/op
-BmAdd                     1960000000     0.556 s       0.283 ns/op
-BmAdd                     1960000000     0.557 s       0.284 ns/op
-BmAdd                     1960000000     0.557 s       0.284 ns/op
-BmAdd                     1960000000     0.559 s       0.285 ns/op
-BmAdd                     1960000000     0.557 s       0.284 ns/op mean
-BmAdd                     1960000000     0.557 s       0.284 ns/op median
-BmAdd                     1960000000     0.001 s       0.001 ns/op stddev
+Test 11/16 BmError.benchmark...
 OK
-Test 10/15 BmNoSelf.error...
+Test 12/16 BmError.benchmark.pSelf...
 OK
-Test 11/15 BmSelf.init_error.setup.tearDown...
+Test 13/16 BmError.init_error.setup.tearDown...
 OK
-Test 12/15 BmSelf.init.setup_error.tearDown...
+Test 14/16 BmError.init.setup_error.tearDown...
 OK
-Test 13/15 BmSelf.init.setup.tearDown_error...
+Test 15/16 BmError.init.setup.tearDown_error...
 OK
-Test 14/15 BmSelf.init.setup.tearDown.benchmark_error...
-OK
-Test 15/15 BmSelf.no_init.no_setup.no_tearDown.benchmark_error...
+Test 16/16 BmError.init.setup.tearDown.benchmark_error...
 OK
 All tests passed.
-
-real	0m40.472s
-user	0m40.347s
-sys	0m0.090s
 ```
 
 ## Assember output
@@ -274,53 +244,53 @@ Here is the loop for BmSelf.init.setup.tearDown.benchmark.AtomicRmwOp.Add
 and you see the loop is unrolled by a factor of 8 so the loop costs are
 relatively close to zero:
 ```
-// This measures the cost of the atomic rmw add:
 //                 self.start_time = @intCast(u64, ts.tv_sec) * u64(ns_per_s) + @intCast(u64, ts.tv_nsec);
-//   20d897:	c5 f9 6f 8c 24 b0 00 	vmovdqa xmm1,XMMWORD PTR [rsp+0xb0]
-//   20d89e:	00 00 
+//   210811:	c5 f9 6f 8c 24 90 00 	vmovdqa xmm1,XMMWORD PTR [rsp+0x90]
+//   210818:	00 00 
 //         while (iter > 0) : (iter -= 1) {
-//   20d8a0:	48 85 db             	test   rbx,rbx
-//   20d8a3:	0f 84 8d 00 00 00    	je     20d936 <BmSelf.init.setup.tearDown.benchmark.AtomicRmwOp.Add+0x286>
+//   21081a:	48 85 db             	test   rbx,rbx
+//   21081d:	0f 84 93 00 00 00    	je     2108b6 <Bm.AtomicRmwOp.Add+0x266>
 //             _ = @atomicRmw(u64, &pSelf.benchmark_count, AtomicRmwOp.Add, 1, AtomicOrder.Release);
-//   20d8a9:	48 8d 4b ff          	lea    rcx,[rbx-0x1]
-//   20d8ad:	48 89 da             	mov    rdx,rbx
-//   20d8b0:	48 89 d8             	mov    rax,rbx
-//   20d8b3:	48 83 e2 07          	and    rdx,0x7
-//   20d8b7:	74 1b                	je     20d8d4 <BmSelf.init.setup.tearDown.benchmark.AtomicRmwOp.Add+0x224>
-//   20d8b9:	48 f7 da             	neg    rdx
-//   20d8bc:	48 89 d8             	mov    rax,rbx
-//   20d8bf:	90                   	nop
-//   20d8c0:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-//   20d8c7:	00 00 00 
+//   210823:	48 8d 4b ff          	lea    rcx,[rbx-0x1]
+//   210827:	48 89 da             	mov    rdx,rbx
+//   21082a:	48 89 d8             	mov    rax,rbx
+//   21082d:	48 83 e2 07          	and    rdx,0x7
+//   210831:	74 21                	je     210854 <Bm.AtomicRmwOp.Add+0x204>
+//   210833:	48 f7 da             	neg    rdx
+//   210836:	48 89 d8             	mov    rax,rbx
+//   210839:	0f 1f 80 00 00 00 00 	nop    DWORD PTR [rax+0x0]
+//   210840:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+//   210847:	00 00 00 
 //         while (iter > 0) : (iter -= 1) {
-//   20d8ca:	48 83 c0 ff          	add    rax,0xffffffffffffffff
-//   20d8ce:	48 83 c2 01          	add    rdx,0x1
-//   20d8d2:	75 ec                	jne    20d8c0 <BmSelf.init.setup.tearDown.benchmark.AtomicRmwOp.Add+0x210>
+//   21084a:	48 83 c0 ff          	add    rax,0xffffffffffffffff
+//   21084e:	48 83 c2 01          	add    rdx,0x1
+//   210852:	75 ec                	jne    210840 <Bm.AtomicRmwOp.Add+0x1f0>
 //             _ = @atomicRmw(u64, &pSelf.benchmark_count, AtomicRmwOp.Add, 1, AtomicOrder.Release);
-//   20d8d4:	48 83 f9 07          	cmp    rcx,0x7
-//   20d8d8:	72 5c                	jb     20d936 <BmSelf.init.setup.tearDown.benchmark.AtomicRmwOp.Add+0x286>
-//   20d8da:	66 0f 1f 44 00 00    	nop    WORD PTR [rax+rax*1+0x0]
-//   20d8e0:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-//   20d8e7:	00 00 00 
-//   20d8ea:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-//   20d8f1:	00 00 00 
-//   20d8f4:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-//   20d8fb:	00 00 00 
-//   20d8fe:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-//   20d905:	00 00 00 
-//   20d908:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-//   20d90f:	00 00 00 
-//   20d912:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-//   20d919:	00 00 00 
-//   20d91c:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-//   20d923:	00 00 00 
-//   20d926:	f0 48 81 44 24 30 01 	lock add QWORD PTR [rsp+0x30],0x1
-//   20d92d:	00 00 00 
+//   210854:	48 83 f9 07          	cmp    rcx,0x7
+//   210858:	72 5c                	jb     2108b6 <Bm.AtomicRmwOp.Add+0x266>
+//   21085a:	66 0f 1f 44 00 00    	nop    WORD PTR [rax+rax*1+0x0]
+//   210860:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+//   210867:	00 00 00 
+//   21086a:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+//   210871:	00 00 00 
+//   210874:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+//   21087b:	00 00 00 
+//   21087e:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+//   210885:	00 00 00 
+//   210888:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+//   21088f:	00 00 00 
+//   210892:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+//   210899:	00 00 00 
+//   21089c:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+//   2108a3:	00 00 00 
+//   2108a6:	f0 48 81 44 24 08 01 	lock add QWORD PTR [rsp+0x8],0x1
+//   2108ad:	00 00 00 
 //         while (iter > 0) : (iter -= 1) {
-//   20d930:	48 83 c0 f8          	add    rax,0xfffffffffffffff8
-//   20d934:	75 aa                	jne    20d8e0 <BmSelf.init.setup.tearDown.benchmark.AtomicRmwOp.Add+0x230>
+//   2108b0:	48 83 c0 f8          	add    rax,0xfffffffffffffff8
+//   2108b4:	75 aa                	jne    210860 <Bm.AtomicRmwOp.Add+0x210>
 //         var ts: posix.timespec = undefined;
-//   20d936:	c5 f9 7f 84 24 b0 00 	vmovdqa XMMWORD PTR [rsp+0xb0],xmm0
+//   2108b6:	c5 f9 7f 84 24 90 00 	vmovdqa XMMWORD PTR [rsp+0x90],xmm0
+//   2108bd:	00 00 
 fn benchmark(pSelf: *Self) void {
     _ = @atomicRmw(u64, &pSelf.benchmark_count, AtomicRmwOp.Add, 1, AtomicOrder.Release);
 }
