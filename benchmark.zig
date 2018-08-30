@@ -592,12 +592,12 @@ test "BmAdd" {
         //         var ts: posix.timespec = undefined;
         //   20e659:	c5 f8 29 4c 24 30    	vmovaps XMMWORD PTR [rsp+0x30],xmm1
         fn benchmark(pSelf: *Self) void {
-            pSelf.r = pSelf.a + pSelf.b;
+            pSelf.r = (pSelf.a +% pSelf.b);
         }
 
         // Optional tearDown called after the last call to Self.benchmark, may return void or !void
         fn tearDown(pSelf: *Self) !void {
-            if (pSelf.r != (u64(pSelf.a) + u64(pSelf.b))) return error.Failed;
+            if (pSelf.r != (u64(pSelf.a) +% u64(pSelf.b))) return error.Failed;
         }
     };
 
@@ -669,13 +669,13 @@ test "BmAdd.Acquire.Release" {
         //   20f3c9:	c5 f8 29 4c 24 20    	vmovaps XMMWORD PTR [rsp+0x20],xmm1
         fn benchmark(pSelf: *Self) void {
             @fence(AtomicOrder.Acquire);
-            pSelf.r = pSelf.a + pSelf.b;
+            pSelf.r = pSelf.a +% pSelf.b;
             @fence(AtomicOrder.Release);
         }
 
         // Optional tearDown called after the last call to Self.benchmark, may return void or !void
         fn tearDown(pSelf: *Self) !void {
-            if (pSelf.r != (u64(pSelf.a) + u64(pSelf.b))) return error.Failed;
+            if (pSelf.r != (u64(pSelf.a) +% u64(pSelf.b))) return error.Failed;
         }
     };
 
@@ -735,13 +735,13 @@ test "BmAdd.lfence.sfence" {
         //   21010f:	c5 f8 29 4c 24 20    	vmovaps XMMWORD PTR [rsp+0x20],xmm1
         fn benchmark(pSelf: *Self) void {
             lfence();
-            pSelf.r = pSelf.a + pSelf.b;
+            pSelf.r = pSelf.a +% pSelf.b;
             sfence();
         }
 
         // Optional tearDown called after the last call to Self.benchmark, may return void or !void
         fn tearDown(pSelf: *Self) !void {
-            if (pSelf.r != (u64(pSelf.a) + u64(pSelf.b))) return error.Failed;
+            if (pSelf.r != (u64(pSelf.a) +% u64(pSelf.b))) return error.Failed;
         }
     };
 
@@ -754,7 +754,7 @@ test "BmAdd.lfence.sfence" {
     _ = try bm.run(BmAdd);
 }
 
-/// Use volatile to actually measure r = a + b
+/// Use volatile to actually measure r = a +% b
 test "BmAdd.volatile" {
     // Our benchmark
     const BmAdd = struct {
@@ -841,12 +841,12 @@ test "BmAdd.volatile" {
             var pA: *volatile u64 = &pSelf.a;
             var pB: *volatile u64 = &pSelf.b;
             var pR: *volatile u64 = &pSelf.r;
-            pR.* = (pA.* + pB.*);
+            pR.* = (pA.* +% pB.*);
         }
 
         // Optional tearDown called after the last call to Self.benchmark, may return void or !void
         fn tearDown(pSelf: *Self) !void {
-            if (pSelf.r != (u64(pSelf.a) + u64(pSelf.b))) return error.Failed;
+            if (pSelf.r != (u64(pSelf.a) +% u64(pSelf.b))) return error.Failed;
         }
     };
 
