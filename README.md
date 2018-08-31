@@ -33,6 +33,11 @@ A benchmark is a struct with fn's init, setup, benchmark and tearDown.
  - May return void or !void
  - Optional
 
+There are two ways to run the benchmark, first you can pass a type
+and the benchmark will create and run it using `Benchmark.createRun`.
+The second technique is to create it yourself and invoke
+`Benchmark.run` passing a pointer to your benchmark instance.
+
 ## Example
 
 ```
@@ -108,7 +113,7 @@ test "Bm.AtomicRmwOp.Add" {
     };
 
     bm.repetitions = 10;
-    var bmSelf = try bm.run(BmSelf);
+    var bmSelf = try bm.createRun(BmSelf);
 }
 ```
 

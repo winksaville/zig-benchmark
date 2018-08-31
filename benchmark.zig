@@ -74,9 +74,10 @@ pub const Benchmark = struct {
     pub min_runtime_ns: u64,
     pub repetitions: u64,
     pub max_iterations: u64,
+    pub pre_run_results: ArrayList(Result),
+    pub results: ArrayList(Result),
     timer: Timer,
     pAllocator: *Allocator,
-    results: ArrayList(Result),
 
     /// Initialize benchmark framework
     pub fn init(name: []const u8, pAllocator: *Allocator) Self {
@@ -88,12 +89,13 @@ pub const Benchmark = struct {
             .max_iterations = 100000000000,
             .timer = undefined,
             .pAllocator = pAllocator,
+            .pre_run_results = ArrayList(Result).init(pAllocator),
             .results = ArrayList(Result).init(pAllocator),
         };
     }
 
-    /// Run the benchmark
-    pub fn run(pSelf: *Self, comptime T: type) !T {
+    /// Create an instance of T and run it
+    pub fn createRun(pSelf: *Self, comptime T: type) !T {
         if (pSelf.logl >= 1)
             warn("run: logl={} min_runtime_ns={} max_iterations={}\n",
                     pSelf.logl, pSelf.min_runtime_ns, pSelf.max_iterations);
@@ -111,27 +113,23 @@ pub const Benchmark = struct {
                 bm = try T.init();
             }
         }
+        try pSelf.run(&bm);
+        return bm;
+    }
 
+    pub fn run(pSelf: *Self, bm: var) !void {
         var once = true;
         var iterations: u64 = 1;
         var rep: u64 = 0;
         while (rep < pSelf.repetitions) : (rep += 1) {
+            const T = @typeOf(bm.*);
             var run_time_ns: u64 = 0;
-
-            // Call bm.setup with try if needed
-            if (comptime defExists("setup", info.Struct.defs)) {
-                if (comptime @typeOf(T.setup).ReturnType == void) {
-                    bm.setup();
-                } else {
-                    try bm.setup();
-                }
-            }
 
             // This loop increases iterations until the time is at least min_runtime_ns.
             // uses that iterations count for each subsequent repetition.
             while (iterations <= pSelf.max_iterations) {
                 // Run the current iterations
-                run_time_ns = try pSelf.runIterations(T, &bm, iterations);
+                run_time_ns = try pSelf.runIterations(T, bm, iterations);
 
                 // If it took >= min_runtime_ns or was very large we'll do the next repeition.
                 if ((run_time_ns >= pSelf.min_runtime_ns) or (iterations >= pSelf.max_iterations)) {
@@ -145,6 +143,9 @@ pub const Benchmark = struct {
                             Result {.run_time_ns = run_time_ns, .iterations = iterations});
                             warn("\n");
                     }
+                    try pSelf.pre_run_results.append(
+                        Result {.run_time_ns = run_time_ns, .iterations = iterations});
+
                     // Increase iterations count
                     var denom: u64 = undefined;
                     var numer: u64 = undefined;
@@ -168,16 +169,7 @@ pub const Benchmark = struct {
                 }
             }
 
-            // Call bm.tearDown with try if needed
-            if (comptime defExists("tearDown", info.Struct.defs)) {
-                if (comptime @typeOf(T.tearDown).ReturnType == void) {
-                    bm.tearDown();
-                } else {
-                    try bm.tearDown();
-                }
-            }
-
-            // Report the last result
+            // Report Type header once
             if (once) {
                 once = false;
                 try leftJustified(22, "name repetitions:{}", pSelf.repetitions);
@@ -186,12 +178,12 @@ pub const Benchmark = struct {
                 try rightJustified(18, "{}", "time/operation");
                 warn("\n");
             }
+
+            // Report results
             try pSelf.report(pSelf.results.items[pSelf.results.len - 1]); warn("\n");
         }
 
         try pSelf.reportStats(pSelf.results);
-
-        return bm;
     }
 
     /// Run the specified number of iterations returning the time in ns
@@ -201,6 +193,17 @@ pub const Benchmark = struct {
         pBm: *T,
         iterations: u64,
     ) !u64 {
+        const info = @typeInfo(T);
+
+        // Call bm.setup with try if needed
+        if (comptime defExists("setup", info.Struct.defs)) {
+            if (comptime @typeOf(T.setup).ReturnType == void) {
+                pBm.setup();
+            } else {
+                try pBm.setup();
+            }
+        }
+
         var timer = try Timer.start();
         var iter = iterations;
         while (iter > 0) : (iter -= 1) {
@@ -225,7 +228,18 @@ pub const Benchmark = struct {
                 },
             }
         }
-        return timer.read();
+        var duration = timer.read();
+
+        // Call bm.tearDown with try if needed
+        if (comptime defExists("tearDown", info.Struct.defs)) {
+            if (comptime @typeOf(T.tearDown).ReturnType == void) {
+                pBm.tearDown();
+            } else {
+                try pBm.tearDown();
+            }
+        }
+
+        return duration;
     }
 
     fn defExists(name: [] const u8, comptime defs: []TypeInfo.Definition) bool {
@@ -363,13 +377,68 @@ pub const Benchmark = struct {
     }
 };
 
+/// Run a benchmark that needs special init handling before running it benchmark
+test "BmRun" {
+    // Since this is a test print a \n before we run
+    warn("\n");
+
+    const X = struct {
+        const Self = this;
+
+        i: u64,
+        initial_i: u64,
+        init_count: u64,
+        setup_count: u64,
+        benchmark_count: u64,
+        tearDown_count: u64,
+
+        fn init(initial_i: u64) Self {
+            return Self {
+                .i = 0,
+                .initial_i = initial_i,
+                .init_count = 1,
+                .setup_count = 0,
+                .benchmark_count = 0,
+                .tearDown_count = 0,
+            };
+        }
+        fn setup(pSelf: *Self) void {
+            pSelf.i = pSelf.initial_i;
+            pSelf.setup_count += 1;
+        }
+        fn benchmark(pSelf: *Self) void {
+            var pI: *volatile u64 = &pSelf.i;
+            pI.* += 1;
+            pSelf.benchmark_count += 1;
+        }
+        fn tearDown(pSelf: *Self) void {
+            pSelf.tearDown_count += 1;
+        }
+    };
+    // Create and initialize outside of Benchmark
+    const initial_i: u64 = 123;
+    var x = X.init(initial_i);
+
+    // Use Benchmark.run to run it
+    var bm = Benchmark.init("BmRun", std.debug.global_allocator);
+    bm.repetitions = 2;
+    try bm.run(&x);
+
+    assert(x.i == (initial_i + bm.results.items[0].iterations));
+    assert(x.i == (initial_i + bm.results.items[1].iterations));
+    assert(x.init_count == 1);
+    assert(x.setup_count - bm.pre_run_results.len == 2);
+    assert(x.benchmark_count > 1000000);
+    assert(x.tearDown_count - bm.pre_run_results.len == 2);
+}
+
 test "BmSimple.cfence" {
     // Since this is a test print a \n before we run
     warn("\n");
 
     // Create an instance of Benchmark and run
     var bm = Benchmark.init("BmSimple.cfence", std.debug.global_allocator);
-    _ = try bm.run(struct {
+    _ = try bm.createRun(struct {
         fn benchmark() void {
             cfence();
         }
@@ -382,7 +451,7 @@ test "BmSimple.lfence" {
 
     // Create an instance of Benchmark and run
     var bm = Benchmark.init("BmSimple.lfence", std.debug.global_allocator);
-    _ = try bm.run(struct {
+    _ = try bm.createRun(struct {
         fn benchmark() void {
             lfence();
         }
@@ -395,7 +464,7 @@ test "BmSimple.sfence" {
 
     // Create an instance of Benchmark and run
     var bm = Benchmark.init("BmSimple.sfence", std.debug.global_allocator);
-    _ = try bm.run(struct {
+    _ = try bm.createRun(struct {
         fn benchmark() void {
             sfence();
         }
@@ -408,7 +477,7 @@ test "BmSimple.mfence" {
 
     // Create an instance of Benchmark and run
     var bm = Benchmark.init("BmSimple.mfence", std.debug.global_allocator);
-    _ = try bm.run(struct {
+    _ = try bm.createRun(struct {
         fn benchmark() void {
             mfence();
         }
@@ -455,7 +524,7 @@ test "BmPoor.init" {
         }
     };
 
-    var bmSelf = try bm.run(BmSelf);
+    var bmSelf = try bm.createRun(BmSelf);
     assert(bmSelf.init_count == 1);
     assert(bmSelf.setup_count == 0);
     assert(bmSelf.benchmark_count > 1000000);
@@ -495,9 +564,9 @@ test "BmPoor.init.setup" {
     };
 
     bm.repetitions = 3;
-    var bmSelf = try bm.run(BmSelf);
+    var bmSelf = try bm.createRun(BmSelf);
     assert(bmSelf.init_count == 1);
-    assert(bmSelf.setup_count == 3);
+    assert(bmSelf.setup_count - bm.pre_run_results.len == 3);
     assert(bmSelf.benchmark_count > 1000000);
     assert(bmSelf.tearDown_count == 0);
 }
@@ -539,11 +608,11 @@ test "BmPoor.init.setup.tearDown" {
     };
 
     bm.repetitions = 3;
-    var bmSelf = try bm.run(BmSelf);
+    var bmSelf = try bm.createRun(BmSelf);
     assert(bmSelf.init_count == 1);
-    assert(bmSelf.setup_count == 3);
+    assert(bmSelf.setup_count - bm.pre_run_results.len == 3);
     assert(bmSelf.benchmark_count > 1000000);
-    assert(bmSelf.tearDown_count == 3);
+    assert(bmSelf.tearDown_count - bm.pre_run_results.len == 3);
 }
 
 /// The inner loop is optimized away.
@@ -588,7 +657,7 @@ test "BmPoor.add" {
     // Create an instance of Benchmark, set 10 iterations and run
     var bm = Benchmark.init("BmAdd", std.debug.global_allocator);
     bm.repetitions = 10;
-    _ = try bm.run(BmAdd);
+    _ = try bm.createRun(BmAdd);
 }
 
 // Measure @atomicRmw Add operation
@@ -663,7 +732,7 @@ test "Bm.AtomicRmwOp.Add" {
     };
 
     bm.repetitions = 10;
-    var bmSelf = try bm.run(BmSelf);
+    var bmSelf = try bm.createRun(BmSelf);
 }
 
 /// Use volatile to actually measure r = a +% b
@@ -768,7 +837,7 @@ test "Bm.volatile.add" {
     // Create an instance of Benchmark, set 10 iterations and run
     var bm = Benchmark.init("Bm.Add", std.debug.global_allocator);
     bm.repetitions = 10;
-    _ = try bm.run(BmAdd);
+    _ = try bm.createRun(BmAdd);
 }
 
 test "BmError.benchmark" {
@@ -777,7 +846,7 @@ test "BmError.benchmark" {
 
     // Test fn benchmark() can return an error
     var bm = Benchmark.init("BmNoSelf.error", std.debug.global_allocator);
-    assertError(bm.run(struct {
+    assertError(bm.createRun(struct {
         fn benchmark() !void {
             return error.TestError;
         }
@@ -790,7 +859,7 @@ test "BmError.benchmark.pSelf" {
 
     // Test fn benchmark(pSelf) can return an error
     var bm = Benchmark.init("BmError.benchmark.pSelf", std.debug.global_allocator);
-    assertError(bm.run(struct {
+    assertError(bm.createRun(struct {
         const Self = this;
 
         // Called on every iteration of the benchmark, may return void or !void
@@ -832,7 +901,7 @@ test "BmError.init_error.setup.tearDown" {
         }
     };
 
-    assertError(bm.run(BmSelf), error.InitError);
+    assertError(bm.createRun(BmSelf), error.InitError);
 }
 
 test "BmError.init.setup_error.tearDown" {
@@ -873,7 +942,7 @@ test "BmError.init.setup_error.tearDown" {
         }
     };
 
-    assertError(bm.run(BmSelf), error.SetupError);
+    assertError(bm.createRun(BmSelf), error.SetupError);
 }
 
 test "BmError.init.setup.tearDown_error" {
@@ -913,7 +982,7 @@ test "BmError.init.setup.tearDown_error" {
         }
     };
 
-    assertError(bm.run(BmSelf), error.TearDownError);
+    assertError(bm.createRun(BmSelf), error.TearDownError);
 }
 
 test "BmError.init.setup.tearDown.benchmark_error" {
@@ -953,6 +1022,6 @@ test "BmError.init.setup.tearDown.benchmark_error" {
         }
     };
 
-    assertError(bm.run(BmSelf), error.BenchmarkError);
+    assertError(bm.createRun(BmSelf), error.BenchmarkError);
 }
 
