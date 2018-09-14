@@ -52,7 +52,7 @@ fn sfence() void {
 
 /// A possible API for a benchmark framework
 pub const Benchmark = struct {
-    const Self = this;
+    const Self = @This();
 
     const Result = struct {
         run_time_ns: u64,
@@ -383,7 +383,7 @@ test "BmRun" {
     warn("\n");
 
     const X = struct {
-        const Self = this;
+        const Self = @This();
 
         i: u64,
         initial_i: u64,
@@ -502,7 +502,7 @@ test "BmPoor.init" {
     // Test fn benchmark(pSelf) can return an error
     var bm = Benchmark.init("BmPoor.init", std.debug.global_allocator);
     const BmSelf = struct {
-        const Self = this;
+        const Self = @This();
 
         init_count: u64,
         setup_count: u64,
@@ -538,7 +538,7 @@ test "BmPoor.init.setup" {
     // Test fn benchmark(pSelf) can return an error
     var bm = Benchmark.init("BmPoor.init.setup", std.debug.global_allocator);
     const BmSelf = struct {
-        const Self = this;
+        const Self = @This();
 
         init_count: u64,
         setup_count: u64,
@@ -578,7 +578,7 @@ test "BmPoor.init.setup.tearDown" {
     // Test fn benchmark(pSelf) can return an error
     var bm = Benchmark.init("BmPoor.init.setup.tearDown", std.debug.global_allocator);
     const BmSelf = struct {
-        const Self = this;
+        const Self = @This();
 
         init_count: u64,
         setup_count: u64,
@@ -619,7 +619,7 @@ test "BmPoor.init.setup.tearDown" {
 test "BmPoor.add" {
     // Our benchmark
     const BmAdd = struct {
-        const Self = this;
+        const Self = @This();
 
         a: u64,
         b: u64,
@@ -668,7 +668,7 @@ test "Bm.AtomicRmwOp.Add" {
     // Test fn benchmark(pSelf) can return an error
     var bm = Benchmark.init("Bm.AtomicRmwOp.Add", std.debug.global_allocator);
     const BmSelf = struct {
-        const Self = this;
+        const Self = @This();
 
         benchmark_count: u64,
 
@@ -739,7 +739,7 @@ test "Bm.AtomicRmwOp.Add" {
 test "Bm.volatile.add" {
     // Our benchmark
     const BmAdd = struct {
-        const Self = this;
+        const Self = @This();
 
         a: u64,
         b: u64,
@@ -860,7 +860,7 @@ test "BmError.benchmark.pSelf" {
     // Test fn benchmark(pSelf) can return an error
     var bm = Benchmark.init("BmError.benchmark.pSelf", std.debug.global_allocator);
     assertError(bm.createRun(struct {
-        const Self = this;
+        const Self = @This();
 
         // Called on every iteration of the benchmark, may return void or !void
         fn benchmark(pSelf: *Self) !void {
@@ -876,7 +876,7 @@ test "BmError.init_error.setup.tearDown" {
     // Test fn benchmark(pSelf) can return an error
     var bm = Benchmark.init("BmError.init_error.setup.tearDown", std.debug.global_allocator);
     const BmSelf = struct {
-        const Self = this;
+        const Self = @This();
 
         init_count: u64,
         setup_count: u64,
@@ -911,7 +911,7 @@ test "BmError.init.setup_error.tearDown" {
     // Test fn benchmark(pSelf) can return an error
     var bm = Benchmark.init("BmError.init.setup_error.tearDown", std.debug.global_allocator);
     const BmSelf = struct {
-        const Self = this;
+        const Self = @This();
 
         init_count: u64,
         setup_count: u64,
@@ -952,7 +952,7 @@ test "BmError.init.setup.tearDown_error" {
     // Test fn benchmark(pSelf) can return an error
     var bm = Benchmark.init("BmError.init.setup.tearDown_error", std.debug.global_allocator);
     const BmSelf = struct {
-        const Self = this;
+        const Self = @This();
 
         init_count: u64,
         setup_count: u64,
@@ -992,7 +992,7 @@ test "BmError.init.setup.tearDown.benchmark_error" {
     // Test fn benchmark(pSelf) can return an error
     var bm = Benchmark.init("BmError.init.setup.tearDown.benchmark_error", std.debug.global_allocator);
     const BmSelf = struct {
-        const Self = this;
+        const Self = @This();
 
         init_count: u64,
         setup_count: u64,
