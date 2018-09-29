@@ -918,7 +918,7 @@ test "BmError.benchmark" {
     // Test fn benchmark() can return an error
     var bm = Benchmark.init("BmNoSelf.error", std.debug.global_allocator);
     assertError(bm.createRun(struct {
-        fn benchmark() !void {
+        fn benchmark() error!void {
             return error.TestError;
         }
     }), error.TestError);
@@ -934,7 +934,7 @@ test "BmError.benchmark.pSelf" {
         const Self = @This();
 
         // Called on every iteration of the benchmark, may return void or !void
-        fn benchmark(pSelf: *Self) !void {
+        fn benchmark(pSelf: *Self) error!void {
             return error.BenchmarkError;
         }
     }), error.BenchmarkError);
@@ -1084,7 +1084,7 @@ test "BmError.init.setup.tearDown.benchmark_error" {
         }
 
         // Called on every iteration of the benchmark, may return void or !void
-        fn benchmark(pSelf: *Self) !void {
+        fn benchmark(pSelf: *Self) error!void {
             return error.BenchmarkError;
         }
 
