@@ -14,6 +14,7 @@
 const builtin = @import("builtin");
 const TypeInfo = builtin.TypeInfo;
 const TypeId = builtin.TypeId;
+const ErrorSet = builtin.TypeId.ErrorSet;
 const AtomicOrder = builtin.AtomicOrder;
 const AtomicRmwOp = builtin.AtomicRmwOp;
 
@@ -57,6 +58,7 @@ pub const Benchmark = struct {
     const Result = struct {
         run_time_ns: u64,
         iterations: u64,
+        inner_iterations: u64,
 
         // Ascending compare lhs < rhs
         fn asc(lhs: Result, rhs: Result) bool {
@@ -123,36 +125,32 @@ pub const Benchmark = struct {
         var rep: u64 = 0;
         while (rep < pSelf.repetitions) : (rep += 1) {
             const T = @typeOf(bm.*);
-            var run_time_ns: u64 = 0;
 
             // This loop increases iterations until the time is at least min_runtime_ns.
             // uses that iterations count for each subsequent repetition.
             while (iterations <= pSelf.max_iterations) {
                 // Run the current iterations
-                run_time_ns = try pSelf.runIterations(T, bm, iterations);
+                var result = try pSelf.runIterations(T, bm, iterations);
 
                 // If it took >= min_runtime_ns or was very large we'll do the next repeition.
-                if ((run_time_ns >= pSelf.min_runtime_ns) or (iterations >= pSelf.max_iterations)) {
+                if ((result.run_time_ns >= pSelf.min_runtime_ns) or (iterations >= pSelf.max_iterations)) {
                     // Append the result and do the next iteration
-                    try pSelf.results.append(
-                            Result { .run_time_ns = run_time_ns, .iterations = iterations});
+                    try pSelf.results.append(result);
                     break;
                 } else {
                     if (pSelf.logl >= 1) {
-                        try pSelf.report(
-                            Result {.run_time_ns = run_time_ns, .iterations = iterations});
-                            warn("\n");
+                        try pSelf.report(result);
+                        warn("\n");
                     }
-                    try pSelf.pre_run_results.append(
-                        Result {.run_time_ns = run_time_ns, .iterations = iterations});
+                    try pSelf.pre_run_results.append(result);
 
                     // Increase iterations count
                     var denom: u64 = undefined;
                     var numer: u64 = undefined;
-                    if (run_time_ns < 1000) {
+                    if (result.run_time_ns < 1000) {
                         numer = 1000;
                         denom = 1;
-                    } else if (run_time_ns < (pSelf.min_runtime_ns / 10)) {
+                    } else if (result.run_time_ns < (pSelf.min_runtime_ns / 10)) {
                         numer = 10;
                         denom = 1;
                     } else {
@@ -192,7 +190,7 @@ pub const Benchmark = struct {
         comptime T: type,
         pBm: *T,
         iterations: u64,
-    ) !u64 {
+    ) !Result {
         const info = @typeInfo(T);
 
         // Call bm.setup with try if needed
@@ -206,25 +204,30 @@ pub const Benchmark = struct {
 
         var timer = try Timer.start();
         var iter = iterations;
+        var inner_iterations: u64 = 1;
         while (iter > 0) : (iter -= 1) {
             const args_len = comptime @typeInfo(@typeOf(T.benchmark)).Fn.args.len;
             switch (comptime args_len) {
                 0 => {
-                    if (comptime @typeOf(T.benchmark).ReturnType == void) {
-                        T.benchmark();
-                    } else {
-                        try T.benchmark();
+                    switch (comptime @typeOf(T.benchmark).ReturnType) {
+                        void => T.benchmark(),
+                        error!void => try T.benchmark(),
+                        u64 => inner_iterations = T.benchmark(),
+                        error!u64 => inner_iterations = try T.benchmark(),
+                        else => @compileError("Expected return type to be void, !void, u64, !u64\n"),
                     }
                 },
                 1 => {
-                    if (comptime @typeOf(T.benchmark).ReturnType == void) {
-                        pBm.benchmark();
-                    } else {
-                        try pBm.benchmark();
+                    switch (comptime @typeOf(T.benchmark).ReturnType) {
+                        void => pBm.benchmark(),
+                        error!void => try pBm.benchmark(),
+                        u64 => inner_iterations = pBm.benchmark(),
+                        error!u64 => inner_iterations = try pBm.benchmark(),
+                        else => @compileError("Expected return type to be void, !void, u64, !u64\n"),
                     }
                 },
                 else => {
-                    @compileError("Expected T.benchmark to have 0 or 1 parameter");
+                    @compileError("Expected T.benchmark to have 0 or 1 parameters");
                 },
             }
         }
@@ -239,7 +242,10 @@ pub const Benchmark = struct {
             }
         }
 
-        return duration;
+        return Result{
+            .run_time_ns = duration,
+            .iterations = iterations,
+            .inner_iterations = inner_iterations,};
     }
 
     fn defExists(name: [] const u8, comptime defs: []TypeInfo.Definition) bool {
@@ -278,11 +284,12 @@ pub const Benchmark = struct {
 
     fn report(pSelf: *Self, result: Result) !void {
         try leftJustified(22, "{s}", pSelf.name);
-        try rightJustified(14, "{}", result.iterations);
+        try rightJustified(14, "{}", result.iterations * result.inner_iterations);
         try rightJustified(12, "{.3} s",
                 @intToFloat(f64, result.run_time_ns)/@intToFloat(f64, ns_per_s));
         try rightJustified(18, "{.3} ns/op",
-                @intToFloat(f64, result.run_time_ns)/@intToFloat(f64, result.iterations));
+                @intToFloat(f64, result.run_time_ns)/
+                    (@intToFloat(f64, result.iterations) * @intToFloat(f64, result.inner_iterations)));
     }
 
     fn reportStats(pSelf: *Self, results: ArrayList(Result)) !void {
@@ -299,8 +306,9 @@ pub const Benchmark = struct {
     fn reportStatsMean(pSelf: *Self, sum: f64, results: ArrayList(Result)) !void {
         try pSelf.report(Result {
             .run_time_ns = @floatToInt(u64, sum / @intToFloat(f64, results.len)),
-            .iterations = results.items[0].iterations}
-        );
+            .iterations = results.items[0].iterations,
+            .inner_iterations = results.items[0].inner_iterations,
+        });
     }
 
     fn reportStatsMedian(pSelf: *Self, sum: f64, results: ArrayList(Result)) !void {
@@ -311,8 +319,9 @@ pub const Benchmark = struct {
 
         try pSelf.report(Result {
             .run_time_ns = @floatToInt(u64, try pSelf.statsMedian(sum, results)),
-            .iterations = results.items[0].iterations}
-        );
+            .iterations = results.items[0].iterations,
+            .inner_iterations = results.items[0].inner_iterations,
+        });
     }
 
     fn reportStatsStdDev(pSelf: *Self, sum: f64, results: ArrayList(Result)) !void {
@@ -325,8 +334,9 @@ pub const Benchmark = struct {
 
         try pSelf.report(Result {
             .run_time_ns = @floatToInt(u64, std_dev),
-            .iterations = results.items[0].iterations}
-        );
+            .iterations = results.items[0].iterations,
+            .inner_iterations = results.items[0].inner_iterations,
+        });
     }
 
     fn statsMean(pSelf: *Self, sum: f64, results: ArrayList(Result)) f64 {
@@ -378,7 +388,7 @@ pub const Benchmark = struct {
 };
 
 /// Run a benchmark that needs special init handling before running it benchmark
-test "BmRun" {
+test "BmRun.1" {
     // Since this is a test print a \n before we run
     warn("\n");
 
@@ -426,6 +436,67 @@ test "BmRun" {
 
     assert(x.i == (initial_i + bm.results.items[0].iterations));
     assert(x.i == (initial_i + bm.results.items[1].iterations));
+    assert(x.init_count == 1);
+    assert(x.setup_count - bm.pre_run_results.len == 2);
+    assert(x.benchmark_count > 1000000);
+    assert(x.tearDown_count - bm.pre_run_results.len == 2);
+}
+
+/// Run a benchmark that needs special init handling before running it benchmark
+test "BmRun.inner_iterations" {
+    // Since this is a test print a \n before we run
+    warn("\n");
+
+    const X = struct {
+        const Self = @This();
+
+        i: u64,
+        initial_i: u64,
+        init_count: u64,
+        setup_count: u64,
+        benchmark_count: u64,
+        tearDown_count: u64,
+        inner_iterations: u64,
+
+        fn init(initial_i: u64, inner_iterations: u64) Self {
+            return Self {
+                .i = 0,
+                .initial_i = initial_i,
+                .init_count = 1,
+                .setup_count = 0,
+                .benchmark_count = 0,
+                .tearDown_count = 0,
+                .inner_iterations = inner_iterations,
+            };
+        }
+        fn setup(pSelf: *Self) void {
+            pSelf.i = pSelf.initial_i;
+            pSelf.setup_count += 1;
+        }
+        fn benchmark(pSelf: *Self) u64 {
+            var count = pSelf.inner_iterations;
+            while(count > 0) : (count -= 1) {
+                var pI: *volatile u64 = &pSelf.i;
+                pI.* += 1;
+            }
+            pSelf.benchmark_count += 1;
+            return pSelf.inner_iterations;
+        }
+        fn tearDown(pSelf: *Self) void {
+            pSelf.tearDown_count += 1;
+        }
+    };
+    // Create and initialize outside of Benchmark
+    const initial_i: u64 = 123;
+    var x = X.init(initial_i, 100);
+
+    // Use Benchmark.run to run it
+    var bm = Benchmark.init("BmRun", std.debug.global_allocator);
+    bm.repetitions = 2;
+    try bm.run(&x);
+
+    assert(x.i == (initial_i + (bm.results.items[0].iterations * x.inner_iterations)));
+    assert(x.i == (initial_i + (bm.results.items[1].iterations * x.inner_iterations)));
     assert(x.init_count == 1);
     assert(x.setup_count - bm.pre_run_results.len == 2);
     assert(x.benchmark_count > 1000000);
@@ -1025,3 +1096,42 @@ test "BmError.init.setup.tearDown.benchmark_error" {
     assertError(bm.createRun(BmSelf), error.BenchmarkError);
 }
 
+test "BmError.init.setup.tearDown.benchmark_error!u64" {
+    // Since this is a test print a \n before we run
+    warn("\n");
+
+    // Test fn benchmark(pSelf) can return an error
+    var bm = Benchmark.init("BmError.init.setup.tearDown.benchmark_error", std.debug.global_allocator);
+    const BmSelf = struct {
+        const Self = @This();
+
+        init_count: u64,
+        setup_count: u64,
+        benchmark_count: u64,
+        tearDown_count: u64,
+
+        fn init() Self {
+            return Self {
+                .init_count = 1,
+                .setup_count = 0,
+                .benchmark_count = 0,
+                .tearDown_count = 0,
+            };
+        }
+
+        fn setup(pSelf: *Self) void {
+            pSelf.setup_count += 1;
+        }
+
+        // Called on every iteration of the benchmark, may return void or !void
+        fn benchmark(pSelf: *Self) error!u64 {
+            return error.BenchmarkError;
+        }
+
+        fn tearDown(pSelf: *Self) void {
+            pSelf.tearDown_count += 1;
+        }
+    };
+
+    assertError(bm.createRun(BmSelf), error.BenchmarkError);
+}
